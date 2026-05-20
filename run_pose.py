@@ -96,7 +96,7 @@ def run(poseweights= 'yolov7-w6-pose.pt', source='pose.mp4', device='cpu'):
 
                     # cv2.circle(image_transparent, (round(Right_Ankle[0]), round(Right_Ankle[1])), 3, (0, 0, 255), 5)
                     # cv2.circle(image_transparent, (round(Left_Ankle[0]), round(Left_Ankle[1])), 3, (0, 255, 0), 5)
-                    img_concat = cv2.add(img, image_transparent)
+                img_concat = cv2.add(img, image_transparent)
 
                 # if ext.isnumeric():
                 cv2.imshow("Detection", img_concat)

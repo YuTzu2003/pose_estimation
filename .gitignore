@@ -17,6 +17,5 @@ README.md
 yolov7-w6-pose.pt
 CamA_images/
 *.csv
-*.pdf
 *.mp4
 *.pyc
