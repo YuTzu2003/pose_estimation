@@ -15,4 +15,8 @@ environment.yml
 How to run the pose estimation on windows using CPU OR GPU.docx
 README.md
 yolov7-w6-pose.pt
-README.md
+CamA_images/
+*.csv
+*.pdf
+*.mp4
+*.pyc
