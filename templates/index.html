@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>步頻分析系統 - Gait Analysis</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #ffffff;
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .navbar {
+            border-bottom: 1px solid #eee;
+        }
+        .hero-section {
+            padding: 80px 0;
+            background-color: #fcfcfc;
+        }
+        .card {
+            border: 1px solid #f0f0f0;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        .btn-primary {
+            background-color: #000;
+            border-color: #000;
+        }
+        .btn-primary:hover {
+            background-color: #333;
+            border-color: #333;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            padding: 40px;
+            text-align: center;
+            border-radius: 10px;
+            cursor: pointer;
+            background-color: #fff;
+        }
+        .upload-area:hover {
+            border-color: #aaa;
+            background-color: #fafafa;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 導覽列 -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="#">GAIT<span class="text-muted">LAB</span></a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">首頁</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">分析紀錄</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">設定</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主視覺區域 -->
+    <section class="hero-section text-center">
+        <div class="container">
+            <h1 class="display-5 fw-bold mb-3">步頻分析系統</h1>
+            <p class="lead text-muted mb-4">透過影像辨識技術，精準分析您的跑步或走路步頻。</p>
+            <div class="d-flex justify-content-center gap-3">
+                <a href="#analyze" class="btn btn-primary btn-lg px-4">開始分析</a>
+                <a href="#" class="btn btn-outline-secondary btn-lg px-4">了解更多</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 分析功能區 -->
+    <div id="analyze" class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card p-4 mb-5 shadow-sm">
+                    <h3 class="card-title mb-4">分析設定與上傳</h3>
+                    
+                    <form id="analysisForm">
+                        <!-- 參數設定 -->
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">鞋長 (公尺)</label>
+                                <input type="number" step="0.01" class="form-control" name="shoes_length" value="0.3">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted">圖片中像素 (比例尺)</label>
+                                <input type="number" class="form-control" name="img_pixel" value="54">
+                            </div>
+                        </div>
+
+                        <!-- 分析功能選擇 -->
+                        <div class="mb-4">
+                            <label class="form-label d-block mb-2 fw-bold">分析功能</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" name="features" value="angles" id="featAngles" checked>
+                                <label class="form-check-label" for="featAngles">關節角度</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" name="features" value="tracking" id="featTracking" checked>
+                                <label class="form-check-label" for="featTracking">點位追蹤</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" name="features" value="stride" id="featStride" checked>
+                                <label class="form-check-label" for="featStride">步幅與速度</label>
+                            </div>
+                        </div>
+
+                        <div class="upload-area mb-4">
+                            <i class="bi bi-cloud-upload display-4 mb-2"></i>
+                            <p class="mb-0">將影片拖曳至此處，或點擊選擇檔案</p>
+                            <small class="text-muted">支援 MP4, MOV 格式</small>
+                            <input type="file" id="videoInput" name="video" class="d-none" accept="video/*">
+                        </div>
+                        
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary py-3 fw-bold">啟動 AI 步頻分析</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 p-3 text-center">
+                            <h6 class="text-muted text-uppercase small">平均步頻</h6>
+                            <h2 class="fw-bold mb-0"><span id="spmValue">--</span> <small class="fs-6 fw-normal">SPM</small></h2>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 p-3 text-center">
+                            <h6 class="text-muted text-uppercase small">步幅預估</h6>
+                            <h2 class="fw-bold mb-0"><span id="strideValue">--</span> <small class="fs-6 fw-normal">cm</small></h2>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="card h-100 p-3 text-center">
+                            <h6 class="text-muted text-uppercase small">對稱性</h6>
+                            <h2 class="fw-bold mb-0"><span id="symmetryValue">--</span> <small class="fs-6 fw-normal">%</small></h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 腳步 -->
+    <footer class="py-4 border-top">
+        <div class="container text-center">
+            <p class="text-muted mb-0">&copy; 2026 GAITLAB. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS & Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const uploadArea = document.querySelector('.upload-area');
+        const videoInput = document.getElementById('videoInput');
+        const analysisForm = document.getElementById('analysisForm');
+        const submitBtn = analysisForm.querySelector('button[type="submit"]');
+
+        uploadArea.addEventListener('click', () => videoInput.click());
+
+        // 處理拖曳上傳
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#000';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#ddd';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#ddd';
+            videoInput.files = e.dataTransfer.files;
+        });
+
+        // 提交分析
+        analysisForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(analysisForm);
+            if (!formData.get('video').name) {
+                alert('請先上傳影片');
+                return;
+            }
+
+            // 更新按鈕狀態
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> 分析中...';
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 更新畫面數據
+                    document.getElementById('spmValue').innerText = result.analysis.avg_spm;
+                    document.getElementById('strideValue').innerText = result.analysis.stride_cm;
+                    document.getElementById('symmetryValue').innerText = result.analysis.symmetry;
+                    
+                    alert('分析完成！');
+                } else {
+                    alert('錯誤: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('分析過程中發生錯誤');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '啟動 AI 步頻分析';
+            }
+        });
+    </script>
+</body>
+</html>
