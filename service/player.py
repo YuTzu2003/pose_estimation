@@ -82,10 +82,7 @@ def update_player():
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE Player 
-            SET Name = ?, Gender = ?, BirthDate = ?, Height = ?, Weight = ?, Sport = ? 
-            WHERE Player_id = ?
-        """, (name, gender, birthdate, height, weight, sport, player_id))
+            UPDATE Player SET Name = ?, Gender = ?, BirthDate = ?, Height = ?, Weight = ?, Sport = ? WHERE Player_id = ?""", (name, gender, birthdate, height, weight, sport, player_id))
         conn.commit()
         return jsonify({'message': '選手資料已更新'}), 200
     except Exception as e:
