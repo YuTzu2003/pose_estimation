@@ -90,19 +90,19 @@
             </div>
             <div class="col-sm-6">
               <label class="form-label">場次標註 / SESSION</label>
-              <input type="text" class="form-control" id="session" name="session" placeholder="例如：2026 春季測驗 #2" />
+              <input type="text" class="form-control" id="session" name="session" placeholder="例如：2026 春季測驗 #2" required />
             </div>
             <div class="col-12">
               <label class="form-label">備註 / NOTE</label>
-              <textarea class="form-control" id="note" name="note" rows="2" placeholder="風向、場地、設備條件等"></textarea>
+              <textarea class="form-control" id="note" name="note" rows="2" placeholder="風向、場地、設備條件等" required></textarea>
             </div>
             <div class="col-sm-6">
               <label class="form-label">比例尺參考距離 (公尺) / REFERENCE DISTANCE (m)</label>
-              <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" />
+              <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" required />
             </div>
             <div class="col-sm-6">
               <label class="form-label">對應圖片像素 / IMAGE PIXELS</label>
-              <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" />
+              <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" required />
             </div>
           </div>
         </div>
@@ -151,28 +151,15 @@
         <h3>分析結果預覽</h3>
       </div>
 
-      <div class="row g-3">
-        <div class="col-lg-7">
-          <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small">
+      <div class="row">
+        <div class="col-12">
+          <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small" style="min-height: 400px; background: #1a1a1a;">
             ANALYZED VIDEO PREVIEW
           </div>
           <div class="d-flex gap-2 mt-3">
             <a class="btn btn-dark btn-sm" href="#">下載標註影片</a>
             <a class="btn btn-outline-dark btn-sm" href="#">下載 pose.csv</a>
             <a class="btn btn-outline-dark btn-sm" href="#">下載 gait.csv</a>
-          </div>
-        </div>
-        <div class="col-lg-5">
-          <div class="row g-3">
-            <div class="col-6"><div class="stat"><div class="label">CADENCE</div><div class="value num">186<span class="unit">spm</span></div></div></div>
-            <div class="col-6"><div class="stat"><div class="label">STRIDE LEN</div><div class="value num">2.14<span class="unit">m</span></div></div></div>
-            <div class="col-6"><div class="stat"><div class="label">AVG SPEED</div><div class="value num">6.62<span class="unit">m/s</span></div></div></div>
-            <div class="col-6"><div class="stat"><div class="label">CONTACT</div><div class="value num">112<span class="unit">ms</span></div></div></div>
-          </div>
-          <div class="tile mt-3">
-            <div class="tile-num">[NOTE]</div>
-            <h4 class="fs-6 mt-2">模型偵測信心 92.4%</h4>
-            <p>建議至「CSV 補真」區塊檢視 frame 184–207 的步幅是否正確。</p>
           </div>
         </div>
       </div>
@@ -215,4 +202,8 @@
       </div>
     </section>
   </main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='index.js') }}"></script>
 {% endblock %}
