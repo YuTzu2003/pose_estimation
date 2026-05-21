@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}選手紀錄{% endblock %}
+
+{% block content %}
+  <main class="container-xl">
+    <header class="page-head">
+      <div class="d-flex flex-wrap gap-4 align-items-end">
+        <div>
+          <div class="eyebrow"><span class="dot"></span> SECTION 02 / RECORDS</div>
+          <h1 class="page-title">選手紀錄追蹤</h1>
+          <p class="page-sub">所有已分析過的影片皆會收錄於此。可依姓名搜尋、依日期排序，並進入單筆紀錄查看影片、CSV 與指標摘要。</p>
+        </div>
+        <div class="ms-auto d-flex gap-3">
+          <div class="stat" style="min-width:160px">
+            <div class="label">TOTAL ANALYSES</div>
+            <div class="value num" id="statTotal">—</div>
+          </div>
+          <div class="stat" style="min-width:160px">
+            <div class="label">ATHLETES</div>
+            <div class="value num" id="statAthletes">—</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="section">
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-5">
+          <label class="form-label">搜尋選手 / SEARCH</label>
+          <input type="text" class="form-control" id="searchInput" placeholder="輸入選手姓名或場次關鍵字" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">排序 / SORT</label>
+          <select class="form-select" id="sortSelect">
+            <option value="date_desc">日期：新 → 舊</option>
+            <option value="date_asc">日期：舊 → 新</option>
+            <option value="cadence_desc">步頻：高 → 低</option>
+            <option value="speed_desc">速度：高 → 低</option>
+          </select>
+        </div>
+        <div class="col-md-4 text-md-end">
+          <span class="mono small text-muted" id="resultCount"></span>
+        </div>
+      </div>
+
+      <div id="recordsList"><!-- filled by JS --></div>
+
+      <div id="emptyHint" class="tile text-center d-none mt-3">
+        <div class="tile-num">[EMPTY]</div>
+        <h4 class="mt-2">查無相符紀錄</h4>
+        <p>請調整搜尋字詞，或<a href="{{ url_for('index') }}#upload">上傳新影片</a>建立第一筆分析。</p>
+      </div>
+    </section>
+  </main>
+{% endblock %}

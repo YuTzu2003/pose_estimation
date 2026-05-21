@@ -1,240 +1,207 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>步頻分析系統 - Gait Analysis</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            background-color: #ffffff;
-            color: #333;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .navbar {
-            border-bottom: 1px solid #eee;
-        }
-        .hero-section {
-            padding: 80px 0;
-            background-color: #fcfcfc;
-        }
-        .card {
-            border: 1px solid #f0f0f0;
-            border-radius: 8px;
-            transition: transform 0.2s;
-        }
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-        .btn-primary {
-            background-color: #000;
-            border-color: #000;
-        }
-        .btn-primary:hover {
-            background-color: #333;
-            border-color: #333;
-        }
-        .upload-area {
-            border: 2px dashed #ddd;
-            padding: 40px;
-            text-align: center;
-            border-radius: 10px;
-            cursor: pointer;
-            background-color: #fff;
-        }
-        .upload-area:hover {
-            border-color: #aaa;
-            background-color: #fafafa;
-        }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
 
-    <!-- 導覽列 -->
-    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="#">GAIT<span class="text-muted">LAB</span></a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link active" href="#">首頁</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#">分析紀錄</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#">設定</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+{% block title %}步頻分析{% endblock %}
 
-    <!-- 主視覺區域 -->
-    <section class="hero-section text-center">
-        <div class="container">
-            <h1 class="display-5 fw-bold mb-3">步頻分析系統</h1>
-            <p class="lead text-muted mb-4">透過影像辨識技術，精準分析您的跑步或走路步頻。</p>
-            <div class="d-flex justify-content-center gap-3">
-                <a href="#analyze" class="btn btn-primary btn-lg px-4">開始分析</a>
-                <a href="#" class="btn btn-outline-secondary btn-lg px-4">了解更多</a>
-            </div>
+{% block content %}
+  <!-- ===== HERO ===== -->
+  <header class="hero">
+    <div class="container-xl">
+      <div class="row align-items-center g-5">
+        <div class="col-lg-6">
+          <h1>量化每一步，<br />解讀運動員的<em>節奏</em></h1>
+          <p class="lead">針對短距離與中距離跑者設計的步頻分析系統，提供關節角度、點位追蹤、步幅與速度分析。</p>
+
+          <div class="d-flex gap-2 mt-4">
+            <a href="#upload" class="btn btn-dark">上傳影片開始分析</a>
+            <a href="{{ url_for('records') }}" class="btn btn-outline-dark">查看選手紀錄</a>
+          </div>
         </div>
+        <div class="col-lg-6">
+          <div class="row g-3">
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="#upload">
+                <span class="arrow">→</span>
+                <div class="tile-num">[01]</div>
+                <h4 class="fs-5">上傳分析</h4>
+                <p class="small text-muted">上傳影片並勾選關節角度、步幅等分析項目。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="#edit">
+                <span class="arrow">→</span>
+                <div class="tile-num">[02]</div>
+                <h4 class="fs-5">CSV 補真</h4>
+                <p class="small text-muted">針對偵測誤差進行手動修正並重新生成影片。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="{{ url_for('records') }}">
+                <span class="arrow">→</span>
+                <div class="tile-num">[03]</div>
+                <h4 class="fs-5">選手紀錄</h4>
+                <p class="small text-muted">依姓名查詢歷次分析，瀏覽 CSV 與指標摘要。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="{{ url_for('compare') }}">
+                <span class="arrow">→</span>
+                <div class="tile-num">[04]</div>
+                <h4 class="fs-5">交叉比對</h4>
+                <p class="small text-muted">選擇兩次紀錄，以時序曲線視覺化呈現差異。</p>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container-xl">
+    <!-- ===== UPLOAD ===== -->
+    <section class="section" id="upload">
+      <div class="section-head">
+        <span class="num-tag">01 / 03</span>
+        <h3>上傳影片並選取分析項目</h3>
+        <span class="right">支援 MP4 / MOV，建議 1080p、≥ 60fps。</span>
+      </div>
+
+      <form id="uploadForm" class="row g-4">
+        <div class="col-lg-7">
+          <label class="form-label">影片檔案 / VIDEO</label>
+          <div class="file-drop" id="fileDrop">
+            <input type="file" id="fileInput" accept="video/*" hidden />
+            <div class="file-drop-inner">
+              <div class="mono small text-muted">DROP / SELECT</div>
+              <div class="fs-5 fw-semibold mt-2">將影片拖入此區塊</div>
+              <div class="text-muted small mt-1">或點選下方按鈕從本機選擇檔案</div>
+              <button class="btn btn-outline-dark mt-3" type="button" onclick="document.getElementById('fileInput').click()">選擇影片</button>
+              <div class="mono small mt-3" id="fileName" style="color:var(--muted)">未選取檔案</div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-sm-6">
+              <label class="form-label">選手姓名 / ATHLETE</label>
+              <input type="text" class="form-control" id="athlete" placeholder="例如：Lin C.H." />
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">場次標註 / SESSION</label>
+              <input type="text" class="form-control" id="session" placeholder="例如：2026 春季測驗 #2" />
+            </div>
+            <div class="col-12">
+              <label class="form-label">備註 / NOTE</label>
+              <textarea class="form-control" id="note" rows="2" placeholder="風向、場地、設備條件等"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-5">
+          <label class="form-label">分析項目 / MODULES</label>
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="check-card is-checked">
+                <input type="checkbox" class="form-check-input" name="m" value="angle" checked />
+                <div class="ck-num">M-01</div>
+                <div class="ck-title">關節角度 Joint Angle</div>
+                <div class="ck-desc">計算膝、髖、踝、肘、肩在每幀的角度，輸出時序曲線。</div>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="check-card is-checked">
+                <input type="checkbox" class="form-check-input" name="m" value="track" checked />
+                <div class="ck-num">M-02</div>
+                <div class="ck-title">點位追蹤 Keypoint Track</div>
+                <div class="ck-desc">輸出 33 個 MediaPipe 點位的 (x, y, z) 軌跡與 visibility。</div>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="check-card is-checked">
+                <input type="checkbox" class="form-check-input" name="m" value="gait" checked />
+                <div class="ck-num">M-03</div>
+                <div class="ck-title">步幅與速度 Stride &amp; Speed</div>
+                <div class="ck-desc">偵測腳跟觸地週期，計算步幅、步頻與瞬時速度。</div>
+              </label>
+            </div>
+          </div>
+
+          <div class="d-grid gap-2 mt-4">
+            <button type="submit" class="btn btn-dark">開始分析</button>
+            <button type="reset" class="btn btn-outline-dark">清除</button>
+          </div>
+        </div>
+      </form>
     </section>
 
-    <!-- 分析功能區 -->
-    <div id="analyze" class="container py-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-8">
-                <div class="card p-4 mb-5 shadow-sm">
-                    <h3 class="card-title mb-4">分析設定與上傳</h3>
-                    
-                    <form id="analysisForm">
-                        <!-- 參數設定 -->
-                        <div class="row g-3 mb-4">
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">鞋長 (公尺)</label>
-                                <input type="number" step="0.01" class="form-control" name="shoes_length" value="0.3">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small text-muted">圖片中像素 (比例尺)</label>
-                                <input type="number" class="form-control" name="img_pixel" value="54">
-                            </div>
-                        </div>
+    <!-- ===== RESULT (mocked preview) ===== -->
+    <section class="section" id="result">
+      <div class="section-head">
+        <span class="num-tag">02 / 03</span>
+        <h3>分析結果預覽</h3>
+        <span class="right">送出後此區塊會顯示對應輸出。</span>
+      </div>
 
-                        <!-- 分析功能選擇 -->
-                        <div class="mb-4">
-                            <label class="form-label d-block mb-2 fw-bold">分析功能</label>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="features" value="angles" id="featAngles" checked>
-                                <label class="form-check-label" for="featAngles">關節角度</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="features" value="tracking" id="featTracking" checked>
-                                <label class="form-check-label" for="featTracking">點位追蹤</label>
-                            </div>
-                            <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="checkbox" name="features" value="stride" id="featStride" checked>
-                                <label class="form-check-label" for="featStride">步幅與速度</label>
-                            </div>
-                        </div>
-
-                        <div class="upload-area mb-4">
-                            <i class="bi bi-cloud-upload display-4 mb-2"></i>
-                            <p class="mb-0">將影片拖曳至此處，或點擊選擇檔案</p>
-                            <small class="text-muted">支援 MP4, MOV 格式</small>
-                            <input type="file" id="videoInput" name="video" class="d-none" accept="video/*">
-                        </div>
-                        
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary py-3 fw-bold">啟動 AI 步頻分析</button>
-                        </div>
-                    </form>
-                </div>
-
-                <div class="row">
-                    <div class="col-md-4 mb-4">
-                        <div class="card h-100 p-3 text-center">
-                            <h6 class="text-muted text-uppercase small">平均步頻</h6>
-                            <h2 class="fw-bold mb-0"><span id="spmValue">--</span> <small class="fs-6 fw-normal">SPM</small></h2>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="card h-100 p-3 text-center">
-                            <h6 class="text-muted text-uppercase small">步幅預估</h6>
-                            <h2 class="fw-bold mb-0"><span id="strideValue">--</span> <small class="fs-6 fw-normal">cm</small></h2>
-                        </div>
-                    </div>
-                    <div class="col-md-4 mb-4">
-                        <div class="card h-100 p-3 text-center">
-                            <h6 class="text-muted text-uppercase small">對稱性</h6>
-                            <h2 class="fw-bold mb-0"><span id="symmetryValue">--</span> <small class="fs-6 fw-normal">%</small></h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
+      <div class="row g-3">
+        <div class="col-lg-7">
+          <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small">
+            ANALYZED VIDEO PREVIEW
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <a class="btn btn-dark btn-sm" href="#">下載標註影片</a>
+            <a class="btn btn-outline-dark btn-sm" href="#">下載 pose.csv</a>
+            <a class="btn btn-outline-dark btn-sm" href="#">下載 gait.csv</a>
+          </div>
         </div>
-    </div>
-
-    <!-- 腳步 -->
-    <footer class="py-4 border-top">
-        <div class="container text-center">
-            <p class="text-muted mb-0">&copy; 2026 GAITLAB. All rights reserved.</p>
+        <div class="col-lg-5">
+          <div class="row g-3">
+            <div class="col-6"><div class="stat"><div class="label">CADENCE</div><div class="value num">186<span class="unit">spm</span></div></div></div>
+            <div class="col-6"><div class="stat"><div class="label">STRIDE LEN</div><div class="value num">2.14<span class="unit">m</span></div></div></div>
+            <div class="col-6"><div class="stat"><div class="label">AVG SPEED</div><div class="value num">6.62<span class="unit">m/s</span></div></div></div>
+            <div class="col-6"><div class="stat"><div class="label">CONTACT</div><div class="value num">112<span class="unit">ms</span></div></div></div>
+          </div>
+          <div class="tile mt-3">
+            <div class="tile-num">[NOTE]</div>
+            <h4 class="fs-6 mt-2">模型偵測信心 92.4%</h4>
+            <p>建議至「CSV 補真」區塊檢視 frame 184–207 的步幅是否正確。</p>
+          </div>
         </div>
-    </footer>
+      </div>
+    </section>
 
-    <!-- Bootstrap JS & Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const uploadArea = document.querySelector('.upload-area');
-        const videoInput = document.getElementById('videoInput');
-        const analysisForm = document.getElementById('analysisForm');
-        const submitBtn = analysisForm.querySelector('button[type="submit"]');
+    <!-- ===== EDIT / CSV CORRECTION ===== -->
+    <section class="section" id="edit">
+      <div class="section-head">
+        <span class="num-tag">03 / 03</span>
+        <h3>CSV 補真 — 步幅與速度</h3>
+        <span class="right">直接點選表格儲存格進行修改，完成後重新生成影片。</span>
+      </div>
 
-        uploadArea.addEventListener('click', () => videoInput.click());
+      <div class="alert d-flex align-items-center gap-3 mb-3" role="alert" style="border:1px solid var(--line); background:#fafafa;">
+        <span class="tag tag-dark"><span class="dot"></span> EDIT MODE</span>
+        <span class="small text-muted">針對模型誤判的步幅，可直接編輯下表中的「步幅 (m)」與「速度 (m/s)」。</span>
+      </div>
 
-        // 處理拖曳上傳
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = '#000';
-        });
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr>
+              <th style="width:80px">#</th>
+              <th>FRAME</th>
+              <th>TIME (s)</th>
+              <th>FOOT</th>
+              <th>STRIDE (m)</th>
+              <th>SPEED (m/s)</th>
+              <th style="width:120px">CONFIDENCE</th>
+            </tr>
+          </thead>
+          <tbody id="csvBody"><!-- filled by JS --></tbody>
+        </table>
+      </div>
 
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.style.borderColor = '#ddd';
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.style.borderColor = '#ddd';
-            videoInput.files = e.dataTransfer.files;
-        });
-
-        // 提交分析
-        analysisForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const formData = new FormData(analysisForm);
-            if (!formData.get('video').name) {
-                alert('請先上傳影片');
-                return;
-            }
-
-            // 更新按鈕狀態
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> 分析中...';
-
-            try {
-                const response = await fetch('/analyze', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    // 更新畫面數據
-                    document.getElementById('spmValue').innerText = result.analysis.avg_spm;
-                    document.getElementById('strideValue').innerText = result.analysis.stride_cm;
-                    document.getElementById('symmetryValue').innerText = result.analysis.symmetry;
-                    
-                    alert('分析完成！');
-                } else {
-                    alert('錯誤: ' + result.error);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('分析過程中發生錯誤');
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '啟動 AI 步頻分析';
-            }
-        });
-    </script>
-</body>
-</html>
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-dark" onclick="alert('已儲存修改後的 CSV（前端示範）')">儲存修改</button>
+        <button class="btn btn-outline-dark" onclick="alert('已使用新 CSV 重新生成步幅標註影片（前端示範）')">重新生成影片</button>
+        <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
+      </div>
+    </section>
+  </main>
+{% endblock %}

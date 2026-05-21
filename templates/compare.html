@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}交叉比對{% endblock %}
+
+{% block content %}
+  <main class="container-xl">
+    <header class="page-head">
+      <div class="eyebrow"><span class="dot"></span> SECTION 03 / CROSS COMPARE</div>
+      <h1 class="page-title">交叉比對分析</h1>
+      <p class="page-sub">選擇同一位選手的兩次分析紀錄，並指定欲比對的關節部位。系統將以時序曲線視覺化呈現差異，協助教練評估訓練成效。</p>
+    </header>
+
+    <section class="section">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">選手 / ATHLETE</label>
+          <select id="cmpAthlete" class="form-select"></select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">紀錄 A / SESSION A</label>
+          <select id="cmpA" class="form-select"></select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">紀錄 B / SESSION B</label>
+          <select id="cmpB" class="form-select"></select>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label class="form-label">關節部位 / JOINTS</label>
+        <div class="row g-2" id="jointPicker">
+          <!-- 6 check-cards filled by JS -->
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mt-4">
+        <button class="btn btn-dark" id="runCompare">執行比對</button>
+        <button class="btn btn-outline-dark" id="resetCompare">重設</button>
+      </div>
+    </section>
+
+    <section class="section" id="cmpResult" hidden>
+      <div class="section-head">
+        <span class="num-tag">RESULT</span>
+        <h3>比對結果</h3>
+        <span class="right" id="cmpMeta"></span>
+      </div>
+
+      <div class="row g-3" id="diffStats"><!-- filled by JS --></div>
+
+      <div class="tile mt-3" style="padding:1.25rem">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="tile-num">[CHART] · 關節角度時序</div>
+          <span class="mono small text-muted">A vs B (deg / time)</span>
+        </div>
+        <canvas id="cmpChart" height="120"></canvas>
+      </div>
+
+      <div class="tile mt-3" style="padding:1.25rem">
+        <div class="tile-num">[TABLE] · 數值摘要</div>
+        <div class="table-responsive mt-2">
+          <table class="table align-middle">
+            <thead>
+              <tr>
+                <th>JOINT</th>
+                <th>A · MEAN (°)</th>
+                <th>B · MEAN (°)</th>
+                <th>Δ MEAN</th>
+                <th>A · MAX</th>
+                <th>B · MAX</th>
+                <th>Δ MAX</th>
+              </tr>
+            </thead>
+            <tbody id="diffTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
