@@ -64,14 +64,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await response.json();
         
         if (response.ok) {
-          alert('上傳成功！\n專案 ID: ' + result.record_id);
-          
-          // 更新預覽畫面顯示上傳的影片
+          // 更新預覽畫面顯示分析後的影片
           const videoFrame = document.querySelector('.video-frame');
           if (videoFrame && result.video_url) {
+            // 加入時間戳記避免瀏覽器快取舊影片
+            const videoUrl = result.video_url + '?t=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls>
-                <source src="${result.video_url}" type="video/mp4">
+              <video width="100%" height="auto" controls autoplay>
+                <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
             `;
@@ -82,6 +82,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
           const resultSec = document.getElementById('result');
           if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
+          
+          // 最後才顯示完成訊息
+          setTimeout(() => alert('分析完成！'), 500);
         } else {
           alert('上傳失敗: ' + result.error);
         }

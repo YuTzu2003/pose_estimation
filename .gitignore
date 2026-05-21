@@ -15,6 +15,7 @@ environment.yml
 How to run the pose estimation on windows using CPU OR GPU.docx
 README.md
 Test20260518/
+jobs/
 *.csv
 *.mp4
 *.pyc
