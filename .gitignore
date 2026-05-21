@@ -19,3 +19,4 @@ Test20260518/
 *.mp4
 *.pyc
 *.pt
+__pycache__/

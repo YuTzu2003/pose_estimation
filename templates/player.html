@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-
 {% block title %}選手建檔 · Stride{% endblock %}
-
 {% block extra_head %}
+
 <style>
   .form-container {
     max-width: 800px;
@@ -16,14 +15,22 @@
     font-size: 0.8rem;
   }
   .btn-xs {
-    padding: 0.15rem 0.4rem;
-    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.82rem;
     border-radius: 0;
+  }
+  #alertPlaceholder {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 2000;
+    min-width: 300px;
   }
 </style>
 {% endblock %}
 
 {% block content %}
+<div id="alertPlaceholder"></div>
 <main class="container-xl">
   <header class="page-head">
     <h1 class="page-title">選手資料建檔</h1>
@@ -34,8 +41,7 @@
     <div class="form-container">
       <div class="d-flex justify-content-between align-items-center mb-4">
         <h3 class="fs-5 mb-0">填寫基本資料</h3>
-        <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#playerListModal" id="btnViewList">
-          查看已建檔選手
+        <button type="button" class="btn btn-outline-dark btn-sm" data-bs-toggle="modal" data-bs-target="#playerListModal" id="btnViewList">查看選手
         </button>
       </div>
 
@@ -94,7 +100,7 @@
 
 <!-- Athlete List Modal -->
 <div class="modal fade" id="playerListModal" tabindex="-1" aria-labelledby="playerListModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content" style="border-radius: 0; border: 1px solid var(--ink);">
       <div class="modal-header border-bottom">
         <h5 class="modal-title fw-bold" id="playerListModalLabel">已建檔選手清單</h5>
@@ -107,6 +113,10 @@
               <tr>
                 <th class="ps-4">編號 ID</th>
                 <th>姓名 NAME</th>
+                <th>性別 GENDER</th>
+                <th>出生日期 BIRTHDATE</th>
+                <th>身高 HT</th>
+                <th>體重 WT</th>
                 <th>專長項目 SPORT</th>
                 <th>建檔日期 DATE</th>
                 <th class="text-end pe-4">操作 ACTIONS</th>
@@ -114,7 +124,7 @@
             </thead>
             <tbody id="playerTableBody">
               <tr>
-                <td colspan="5" class="text-center py-4 text-muted">載入中...</td>
+                <td colspan="9" class="text-center py-4 text-muted">載入中...</td>
               </tr>
             </tbody>
           </table>
@@ -136,19 +146,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const playerTableBody = document.getElementById('playerTableBody');
 
   async function refreshPlayerList() {
-    playerTableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">載入中...</td></tr>';
+    playerTableBody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">載入中...</td></tr>';
     try {
       const response = await fetch('/get_players');
       const data = await response.json();
       
       if (response.ok) {
         if (data.length === 0) {
-          playerTableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">目前尚無選手資料</td></tr>';
+          playerTableBody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">目前尚無選手資料</td></tr>';
         } else {
           playerTableBody.innerHTML = data.map(p => `
             <tr data-id="${p.id}">
               <td class="ps-4 mono small">${p.id}</td>
               <td class="name-cell fw-semibold">${p.name}</td>
+              <td class="gender-cell small">${p.gender || '-'}</td>
+              <td class="birthdate-cell mono small">${p.birthdate || '-'}</td>
+              <td class="height-cell mono small">${p.height || '-'} <span class="text-muted" style="font-size:0.7rem">cm</span></td>
+              <td class="weight-cell mono small">${p.weight || '-'} <span class="text-muted" style="font-size:0.7rem">kg</span></td>
               <td class="sport-cell text-muted small">${p.sport || '-'}</td>
               <td class="mono small text-muted">${p.date}</td>
               <td class="text-end pe-4">
@@ -165,33 +179,71 @@ document.addEventListener('DOMContentLoaded', () => {
           `).join('');
         }
       } else {
-        playerTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">載入失敗: ${data.error}</td></tr>`;
+        playerTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-danger">載入失敗: ${data.error}</td></tr>`;
       }
     } catch (err) {
-      playerTableBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-danger">連線錯誤</td></tr>';
+      playerTableBody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-danger">連線錯誤</td></tr>';
     }
   }
 
   // Load players when clicking the view button
   btnViewList.addEventListener('click', refreshPlayerList);
 
+  function showToast(message, type = 'success') {
+    const placeholder = document.getElementById('alertPlaceholder');
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show shadow-sm" role="alert" style="border-radius:0; border-left: 4px solid var(--ink);">
+        <div class="d-flex align-items-center gap-2">
+          <span class="mono small fw-bold">${type.toUpperCase()}</span>
+          <span>${message}</span>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    `;
+    placeholder.append(wrapper);
+    setTimeout(() => {
+      const alert = bootstrap.Alert.getOrCreateInstance(wrapper.firstElementChild);
+      if (alert) alert.close();
+    }, 5000);
+  }
+
   // Table actions (Edit, Delete, Save, Cancel)
   playerTableBody.addEventListener('click', async (e) => {
     const row = e.target.closest('tr');
     if (!row) return;
     const playerId = row.dataset.id;
-    const nameCell = row.querySelector('.name-cell');
-    const sportCell = row.querySelector('.sport-cell');
     const viewMode = row.querySelector('.view-mode');
     const editMode = row.querySelector('.edit-mode');
 
     if (e.target.classList.contains('btn-edit')) {
       // Switch to edit mode
+      const nameCell = row.querySelector('.name-cell');
+      const genderCell = row.querySelector('.gender-cell');
+      const birthdateCell = row.querySelector('.birthdate-cell');
+      const heightCell = row.querySelector('.height-cell');
+      const weightCell = row.querySelector('.weight-cell');
+      const sportCell = row.querySelector('.sport-cell');
+      
       const currentName = nameCell.textContent;
+      const currentGender = genderCell.textContent;
+      const currentBirthdate = birthdateCell.textContent === '-' ? '' : birthdateCell.textContent;
+      const currentHeight = heightCell.textContent.split(' ')[0] === '-' ? '' : heightCell.textContent.split(' ')[0];
+      const currentWeight = weightCell.textContent.split(' ')[0] === '-' ? '' : weightCell.textContent.split(' ')[0];
       const currentSport = sportCell.textContent === '-' ? '' : sportCell.textContent;
       
-      nameCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${currentName}">`;
-      sportCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${currentSport}">`;
+      nameCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${currentName}" style="max-width: 110px;">`;
+      genderCell.innerHTML = `
+        <select class="form-select form-select-sm" style="max-width: 90px;">
+          <option value="Male" ${currentGender === 'Male' ? 'selected' : ''}>Male</option>
+          <option value="Female" ${currentGender === 'Female' ? 'selected' : ''}>Female</option>
+          <option value="Other" ${currentGender === 'Other' ? 'selected' : ''}>Other</option>
+        </select>
+      `;
+      birthdateCell.innerHTML = `<input type="date" class="form-control form-control-sm" value="${currentBirthdate}" style="max-width: 130px;">`;
+      heightCell.innerHTML = `<input type="number" step="0.1" class="form-control form-control-sm" value="${currentHeight}" style="max-width: 80px;">`;
+      weightCell.innerHTML = `<input type="number" step="0.1" class="form-control form-control-sm" value="${currentWeight}" style="max-width: 80px;">`;
+      sportCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${currentSport}" style="max-width: 130px;">`;
       
       viewMode.classList.add('d-none');
       editMode.classList.remove('d-none');
@@ -200,12 +252,20 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshPlayerList();
     } 
     else if (e.target.classList.contains('btn-save')) {
-      const newName = nameCell.querySelector('input').value;
-      const newSport = sportCell.querySelector('input').value;
+      const newName = row.querySelector('.name-cell input').value;
+      const newGender = row.querySelector('.gender-cell select').value;
+      const newBirthdate = row.querySelector('.birthdate-cell input').value;
+      const newHeight = row.querySelector('.height-cell input').value;
+      const newWeight = row.querySelector('.weight-cell input').value;
+      const newSport = row.querySelector('.sport-cell input').value;
 
       const formData = new FormData();
       formData.append('id', playerId);
       formData.append('name', newName);
+      formData.append('gender', newGender);
+      formData.append('birthdate', newBirthdate);
+      formData.append('height', newHeight);
+      formData.append('weight', newWeight);
       formData.append('sport', newSport);
 
       try {
@@ -215,13 +275,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const result = await response.json();
         if (response.ok) {
-          alert(result.message);
+          showToast(result.message, 'success');
           refreshPlayerList();
         } else {
-          alert('更新失敗: ' + result.error);
+          showToast('更新失敗: ' + result.error, 'danger');
         }
       } catch (err) {
-        alert('連線錯誤');
+        showToast('連線錯誤', 'danger');
       }
     } 
     else if (e.target.classList.contains('btn-delete')) {
@@ -231,13 +291,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const response = await fetch(`/delete_player/${playerId}`, { method: 'DELETE' });
         const result = await response.json();
         if (response.ok) {
-          alert(result.message);
+          showToast(result.message, 'success');
           refreshPlayerList();
         } else {
-          alert('刪除失敗: ' + result.error);
+          showToast('刪除失敗: ' + result.error, 'danger');
         }
       } catch (err) {
-        alert('連線錯誤');
+        showToast('連線錯誤', 'danger');
       }
     }
   });
@@ -261,14 +321,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await response.json();
         
         if (response.ok) {
-          alert(result.message);
+          showToast(result.message, 'success');
           playerForm.reset();
         } else {
-          alert('建檔失敗: ' + result.error);
+          showToast('建檔失敗: ' + result.error, 'danger');
         }
       } catch (err) {
         console.error(err);
-        alert('連線錯誤，請稍後再試。');
+        showToast('連線錯誤，請稍後再試。', 'danger');
       } finally {
         const btn = playerForm.querySelector('button[type="submit"]');
         btn.textContent = '儲存建檔';

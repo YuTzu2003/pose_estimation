@@ -21,7 +21,6 @@
       <div class="app-nav-links">
         {# "首頁" link removed per user request, using the brand icon instead #}
         <a href="{{ url_for('player_page') }}" class="{% if request.endpoint == 'player_page' %}active{% endif %}">選手建檔</a>
-        <a href="{{ url_for('index') }}#upload">上傳分析</a>
         <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">選手紀錄</a>
         <a href="{{ url_for('compare') }}" class="{% if request.endpoint == 'compare' %}active{% endif %}">交叉比對</a>
       </div>
@@ -31,7 +30,9 @@
     </div>
   </nav>
 
-  {% block content %}{% endblock %}
+  <div class="app-main">
+    {% block content %}{% endblock %}
+  </div>
 
   <footer class="app-foot">
     <div class="container-xl d-flex flex-wrap gap-3 align-items-center">
