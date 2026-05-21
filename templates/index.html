@@ -69,13 +69,12 @@
         <div class="col-lg-7">
           <label class="form-label">影片檔案 / VIDEO</label>
           <div class="file-drop" id="fileDrop">
-            <input type="file" id="fileInput" accept="video/*" hidden />
+            <input type="file" id="fileInput" name="video" accept="video/*" hidden />
             <div class="file-drop-inner">
-              <div class="mono small text-muted">DROP / SELECT</div>
-              <div class="fs-5 fw-semibold mt-2">將影片拖入此區塊</div>
-              <div class="text-muted small mt-1">或點選下方按鈕從本機選擇檔案</div>
-              <button class="btn btn-outline-dark mt-3" type="button" onclick="document.getElementById('fileInput').click()">選擇影片</button>
-              <div class="mono small mt-3" id="fileName" style="color:var(--muted)">未選取檔案</div>
+              <div class="d-flex align-items-center gap-3 mt-3 px-3">
+                <button class="btn btn-outline-dark" type="button" onclick="document.getElementById('fileInput').click()">選擇影片</button>
+                <div class="mono small" id="fileName" style="color:var(--muted)">未選取檔案</div>
+              </div>
             </div>
           </div>
 
@@ -91,11 +90,19 @@
             </div>
             <div class="col-sm-6">
               <label class="form-label">場次標註 / SESSION</label>
-              <input type="text" class="form-control" id="session" placeholder="例如：2026 春季測驗 #2" />
+              <input type="text" class="form-control" id="session" name="session" placeholder="例如：2026 春季測驗 #2" />
             </div>
             <div class="col-12">
               <label class="form-label">備註 / NOTE</label>
-              <textarea class="form-control" id="note" rows="2" placeholder="風向、場地、設備條件等"></textarea>
+              <textarea class="form-control" id="note" name="note" rows="2" placeholder="風向、場地、設備條件等"></textarea>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">比例尺參考距離 (公尺) / REFERENCE DISTANCE (m)</label>
+              <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" />
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">對應圖片像素 / IMAGE PIXELS</label>
+              <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" />
             </div>
           </div>
         </div>
@@ -108,7 +115,7 @@
                 <input type="checkbox" class="form-check-input" name="m" value="angle" checked />
                 <div class="ck-num">M-01</div>
                 <div class="ck-title">關節角度 Joint Angle</div>
-                <div class="ck-desc">計算膝、髖、踝、肘、肩在每幀的角度，輸出時序曲線。</div>
+                <div class="ck-desc">計算膝、髖、踝、肘、肩在每幀的角度。</div>
               </label>
             </div>
             <div class="col-12">

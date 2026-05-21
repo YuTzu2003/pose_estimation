@@ -46,16 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('athlete', document.getElementById('athlete').value);
-      formData.append('session', document.getElementById('session').value);
-      formData.append('note', document.getElementById('note').value);
-      
-      // Collect selected modules
-      document.querySelectorAll('input[name="m"]:checked').forEach(cb => {
-        formData.append('modules', cb.value);
-      });
+      const formData = new FormData(uploadForm);
+      // Ensure 'modules' is sent if backend expects that specific key, 
+      // or just rely on 'm' from the form names.
+      // The current backend doesn't use it yet, so 'm' is fine.
       
       try {
         const btn = uploadForm.querySelector('button[type="submit"]');

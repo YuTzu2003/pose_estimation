@@ -6,6 +6,7 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from modules.db import get_conn, release_conn
 from service.player import player_bp
+from service.analysis import run_full_analysis
 
 app = Flask(__name__)
 app.register_blueprint(player_bp)
@@ -51,6 +52,12 @@ def upload():
     athlete = request.form.get('athlete', '')
     session_name = request.form.get('session', '')
     note = request.form.get('note', '')
+    
+    # 取得比例尺與分析項目
+    scale_reference = float(request.form.get('scale_reference', 0.3) or 0.3)
+    scale_pixels = int(request.form.get('scale_pixels', 54) or 54)
+    modules = request.form.getlist('m') # ['angle', 'track', 'gait']
+
     record_id = "Rec_" + uuid.uuid4().hex[:8]
     project_dir = os.path.join(JOBS_DIR, record_id)
     os.makedirs(project_dir, exist_ok=True)
@@ -61,18 +68,34 @@ def upload():
         
     video_path = os.path.join(project_dir, filename)
     file.save(video_path)
+
+    # 執行分析
+    try:
+        result_video, pose_csv, peaks_csv = run_full_analysis(
+            video_path, project_dir, modules, 
+            scale_reference=scale_reference, 
+            scale_pixels=scale_pixels
+        )
+    except Exception as e:
+        return jsonify({'error': f'分析失敗: {str(e)}'}), 500
     
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("""NSERT INTO Record (Record_id, Player_id, Session_name, Note, Original_Video_Path) VALUES (?, ?, ?, ?, ?)""", (record_id, athlete, session_name, note, video_path))
+        cursor.execute("""
+            INSERT INTO Record (
+                Record_id, Player_id, Session_name, Note, 
+                Original_Video_Path, Result_Video_Path, 
+                Pose_csv_path, ValidPeaks_csv_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (record_id, athlete, session_name, note, video_path, result_video, pose_csv, peaks_csv))
         conn.commit()
     except Exception as e:
         conn.rollback()
         return jsonify({'error': f'資料庫錯誤: {str(e)}'}), 500
     finally:
         release_conn(conn)   
-    return jsonify({'record_id': record_id, 'message': '上傳成功！專案已建立。'})
+    return jsonify({'record_id': record_id, 'message': '上傳成功並完成分析！'})
 
 @app.route('/player.html')
 def player_page():
