@@ -264,7 +264,10 @@ td[contenteditable="true"]:focus {
 /* ===== Footer ===== */
 .app-foot {
   border-top: 1px solid var(--line);
-  padding: 2rem 0; margin-top: 4rem;
+  height: 100px; 
+  display: flex;
+  align-items: center;
+  margin-top: 4rem;
   color: var(--muted); font-size: .85rem;
 }
 .app-foot .mono { color: var(--ink); }

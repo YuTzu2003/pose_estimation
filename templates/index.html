@@ -82,7 +82,12 @@
           <div class="row g-3 mt-1">
             <div class="col-sm-6">
               <label class="form-label">選手姓名 / ATHLETE</label>
-              <input type="text" class="form-control" id="athlete" placeholder="例如：Lin C.H." />
+              <select class="form-select" id="athlete" name="athlete" required>
+                <option value="" disabled selected>請選擇選手...</option>
+                {% for player in players %}
+                  <option value="{{ player[0] }}">{{ player[1] }} ({{ player[0] }})</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="col-sm-6">
               <label class="form-label">場次標註 / SESSION</label>

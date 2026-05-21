@@ -37,11 +37,54 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (uploadForm) {
-    uploadForm.addEventListener('submit', (e) => {
+    uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      alert('已送出分析請求（前端示範）。往下滾動至「分析結果預覽」查看。');
-      const resultSec = document.getElementById('result');
-      if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
+      
+      const file = fileInput.files[0];
+      if (!file) {
+        alert('請先選擇要上傳的影片檔案');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('athlete', document.getElementById('athlete').value);
+      formData.append('session', document.getElementById('session').value);
+      formData.append('note', document.getElementById('note').value);
+      
+      // Collect selected modules
+      document.querySelectorAll('input[name="m"]:checked').forEach(cb => {
+        formData.append('modules', cb.value);
+      });
+      
+      try {
+        const btn = uploadForm.querySelector('button[type="submit"]');
+        const originalText = btn.textContent;
+        btn.textContent = '上傳中...';
+        btn.disabled = true;
+
+        const response = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+          alert('上傳成功！\n專案 ID: ' + result.record_id);
+          const resultSec = document.getElementById('result');
+          if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          alert('上傳失敗: ' + result.error);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('上傳過程發生錯誤，請稍後再試。');
+      } finally {
+        const btn = uploadForm.querySelector('button[type="submit"]');
+        btn.textContent = '開始分析';
+        btn.disabled = false;
+      }
     });
   }
 
