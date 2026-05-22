@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (videoFrame && result.video_url) {
             const videoUrl = result.video_url + '?t=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls autoplay style="display: block; max-height: 70vh; object-fit: contain;">
+              <video width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
                 <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
@@ -91,7 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
             videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
             videoFrame.style.height = 'auto';
             videoFrame.style.minHeight = '0';
-            videoFrame.style.background = 'black';
+            videoFrame.style.background = 'transparent';
+            videoFrame.style.border = 'none';
 
             // 更新下載連結
             const downloadBtn = document.querySelector('a[href="#"][class*="btn-dark"]');
@@ -274,14 +275,15 @@ document.addEventListener('DOMContentLoaded', () => {
           if (videoFrame && result.video_url) {
             const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls autoplay style="display: block; max-height: 70vh; object-fit: contain;">
+              <video width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
                 <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
             `;
             videoFrame.style.height = 'auto';
             videoFrame.style.minHeight = '0';
-            videoFrame.style.background = 'black';
+            videoFrame.style.background = 'transparent';
+            videoFrame.style.border = 'none';
             videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
 
             // 更新下載連結
