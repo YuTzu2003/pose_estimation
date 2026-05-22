@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 from modules.db import get_conn, release_conn
 from service.player import player_bp
 from service.record import record_bp
+from service.line_notify import send_save_notification
 from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis
 from modules.pipeline.peak_smooth import peak_smooth
@@ -291,6 +292,22 @@ def player_page():
 @app.route('/download_tool')
 def download_tool():
     return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'video2frame.exe', as_attachment=True)
+
+@app.route('/api/line_notify', methods=['POST'])
+def line_notify():
+    data = request.json
+    record_id = data.get('record_id')
+    session_name = data.get('session_name')
+    
+    if not record_id:
+        return jsonify({'error': 'Missing record_id'}), 400
+        
+    try:
+        result = send_save_notification(record_id, session_name or "未指定場次")
+        return jsonify({'success': True, 'result': result})
+    except Exception as e:
+        print(f"LINE notification error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

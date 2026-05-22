@@ -359,7 +359,31 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('請先上傳影片並完成分析後再保存。');
         return;
       }
-      alert('專案已完整保存！\n紀錄 ID: ' + currentAnalysis.record_id);
+      
+      const sessionName = document.getElementById('session').value || "未指定場次";
+      
+      // Call the LINE notification API
+      fetch('/api/line_notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          record_id: currentAnalysis.record_id,
+          session_name: sessionName
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          alert('專案已完整保存，並已發送 LINE 通知！\n紀錄 ID: ' + currentAnalysis.record_id);
+        } else {
+          console.error('LINE notification failed:', data.error);
+          alert('專案已保存，但 LINE 通知發送失敗。\n紀錄 ID: ' + currentAnalysis.record_id);
+        }
+      })
+      .catch(err => {
+        console.error('Error sending LINE notification:', err);
+        alert('專案已保存，但發送通知時發生錯誤。\n紀錄 ID: ' + currentAnalysis.record_id);
+      });
     };
   }
 
