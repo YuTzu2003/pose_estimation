@@ -292,6 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
               downloadBtn.href = videoUrl;
               downloadBtn.download = result.video_url.split('/').pop().split('?')[0];
             }
+            // 同時更新 Gait CSV 下載連結 (加上 timestamp 避免快取)
+            const csvBtns = document.querySelectorAll('a[class*="btn-outline-dark"][download*="_peaks.csv"]');
+            if (csvBtns.length > 0) {
+              const currentHref = csvBtns[0].href.split('?')[0];
+              csvBtns[0].href = `${currentHref}?t=${new Date().getTime()}`;
+            }
           }
           alert('影片已重新生成！');
         } else {

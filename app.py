@@ -2,17 +2,21 @@ import os
 import uuid
 import logging
 import sys
+import time
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from modules.db import get_conn, release_conn
 from service.player import player_bp
+from service.record import record_bp
 from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis
 from modules.pipeline.peak_smooth import peak_smooth
 from modules.pipeline.step_metrics import run_step
 
 app = Flask(__name__)
+# ... (rest of the file until regenerate_gait)
 app.register_blueprint(player_bp)
+app.register_blueprint(record_bp)
 JOBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'jobs')
 if not os.path.exists(JOBS_DIR):
     os.makedirs(JOBS_DIR)
@@ -190,6 +194,7 @@ def regenerate_gait():
     record_id = data.get('record_id')
     peak_data = data.get('peak_data') # 陣列 [{Frame_Right, X_Right, ...}, ...]
     scale_info = data.get('scale_info')
+    person_records = data.get('person_records')
     
     if not record_id or not peak_data:
         return jsonify({'error': 'Missing parameters'}), 400
@@ -202,21 +207,21 @@ def regenerate_gait():
         df = pd.DataFrame(peak_data)
         df.to_csv(peaks_csv_abs, index=False)
         
-        # 重新執行 run_step
-        # 我們需要找出原始的分析影片路徑
-        # 從資料庫或檔案系統找
-        res_video = f"{record_id}_result.mp4"
-        input_video_for_gait = os.path.join(project_dir, res_video)
+        # 尋找輸入影片，可能是 .mp4 或 .avi
+        input_video_for_gait = None
+        for ext in ['_result.mp4', '_result.avi', '.mp4', '.avi']:
+            test_path = os.path.join(project_dir, f"{record_id}{ext}")
+            if os.path.exists(test_path):
+                input_video_for_gait = test_path
+                break
         
+        if not input_video_for_gait:
+            return jsonify({'error': f'找不到原始分析影片 ({record_id}_result.mp4)'}), 404
+            
         gait_video_name = f"{record_id}_gait_v2.mp4"
         gait_video_abs = os.path.join(project_dir, gait_video_name)
         
         ratio = float(scale_info['reference']) / float(scale_info['pixels'])
-        
-        # 這裡需要 person_records，可以從資料庫拿，或者如果 run_step 沒給就是全部
-        # 為了簡化，我們先不傳 person_records (如果 user 已經在前端看到正確對應的 Frame)
-        # 或者我們在 upload 時也回傳 person_records
-        person_records = data.get('person_records')
         
         final_gait_video = run_step(
             input_video_for_gait, peaks_csv_abs, gait_video_abs, 
@@ -232,6 +237,8 @@ def regenerate_gait():
                 cursor = conn.cursor()
                 cursor.execute("UPDATE Record SET Result_Video_Path = ? WHERE Record_id = ?", (result_video_path, record_id))
                 conn.commit()
+            except Exception as db_e:
+                print(f"Database update failed: {db_e}")
             finally:
                 release_conn(conn)
                 
@@ -240,15 +247,20 @@ def regenerate_gait():
                 'video_url': f"/static/{result_video_path}?t={int(time.time())}"
             })
         else:
-            return jsonify({'error': 'Failed to generate video'}), 500
+            return jsonify({'error': '影片生成程序執行失敗'}), 500
             
     except Exception as e:
-        print(f"Regenerate error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/player.html')
 def player_page():
     return render_template('player.html')
 
+@app.route('/download_tool')
+def download_tool():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'video2frame.exe', as_attachment=True)
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

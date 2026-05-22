@@ -2,56 +2,161 @@
 
 {% block title %}選手紀錄{% endblock %}
 
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .cursor-pointer { cursor: pointer; }
+    .player-card:hover {
+      border-color: var(--brand-color, #000);
+      background-color: #f8f9fa;
+      transform: translateY(-2px);
+      transition: all 0.2s ease;
+    }
+    .tile-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: #adb5bd;
+      margin-bottom: 0.5rem;
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
   <main class="container-xl">
     <header class="page-head">
       <div class="d-flex flex-wrap gap-4 align-items-end">
         <div>
           <h1 class="page-title">選手紀錄追蹤</h1>
-          <p class="page-sub">所有已分析過的影片皆會收錄於此。可依姓名搜尋、依日期排序，並進入單筆紀錄查看影片、CSV 與指標摘要。</p>
+          <p class="page-sub">選擇選手以查看其測試紀錄。您可以進一步查看單筆紀錄的詳細分析影片與數據圖表。</p>
         </div>
         <div class="ms-auto d-flex gap-3">
           <div class="stat" style="min-width:160px">
             <div class="label">TOTAL ANALYSES</div>
-            <div class="value num" id="statTotal">—</div>
+            <div class="value num" id="statTotal">0</div>
           </div>
           <div class="stat" style="min-width:160px">
             <div class="label">ATHLETES</div>
-            <div class="value num" id="statAthletes">—</div>
+            <div class="value num" id="statAthletes">0</div>
           </div>
         </div>
       </div>
     </header>
 
-    <section class="section">
+    <!-- Player Selection Section -->
+    <section class="section" id="playerSection">
+      <h3 class="section-title">選擇選手 / SELECT ATHLETE</h3>
+      <div class="row g-3" id="playerList">
+        <!-- Filled by JS -->
+      </div>
+    </section>
+
+    <!-- Records List Section (Initially Hidden) -->
+    <section class="section d-none" id="recordsSection">
+      <div class="d-flex align-items-center mb-4">
+        <button class="btn btn-sm btn-outline-secondary me-3" id="backToPlayers">
+          <i class="bi bi-arrow-left"></i> 返回選手列表
+        </button>
+        <h3 class="mb-0">紀錄列表 / RECORDS: <span id="currentPlayerName" class="text-primary"></span></h3>
+      </div>
+      
       <div class="row g-2 align-items-end mb-3">
-        <div class="col-md-5">
-          <label class="form-label">搜尋選手 / SEARCH</label>
-          <input type="text" class="form-control" id="searchInput" placeholder="輸入選手姓名或場次關鍵字" />
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">排序 / SORT</label>
-          <select class="form-select" id="sortSelect">
-            <option value="date_desc">日期：新 → 舊</option>
-            <option value="date_asc">日期：舊 → 新</option>
-            <option value="cadence_desc">步頻：高 → 低</option>
-            <option value="speed_desc">速度：高 → 低</option>
-          </select>
+        <div class="col-md-8">
+          <input type="text" class="form-control" id="searchInput" placeholder="搜尋場次或備註關鍵字..." />
         </div>
         <div class="col-md-4 text-md-end">
           <span class="mono small text-muted" id="resultCount"></span>
         </div>
       </div>
 
-      <div id="recordsList"><!-- filled by JS --></div>
+      <div id="recordsList"></div>
+    </section>
 
-      <div id="emptyHint" class="tile text-center d-none mt-3">
-        <div class="tile-num">[EMPTY]</div>
-        <h4 class="mt-2">查無相符紀錄</h4>
-        <p>請調整搜尋字詞，或<a href="{{ url_for('index') }}#upload">上傳新影片</a>建立第一筆分析。</p>
+    <!-- Record Detail Section (Initially Hidden) -->
+    <section class="section d-none" id="detailSection">
+      <div class="d-flex align-items-center mb-4">
+        <button class="btn btn-sm btn-outline-secondary me-3" id="backToRecords">
+          <i class="bi bi-arrow-left"></i> 返回紀錄列表
+        </button>
+        <h3 class="mb-0">紀錄詳情 / RECORD DETAILS</h3>
+        <button class="btn btn-sm btn-outline-primary ms-auto me-2" id="editRecordBtn">編輯資訊</button>
+        <button class="btn btn-sm btn-outline-danger" id="deleteCurrentRecord">刪除此紀錄</button>
+      </div>
+
+      <div class="row g-4">
+        <!-- Video Comparison -->
+        <div class="col-lg-6">
+          <div class="tile h-100">
+            <div class="tile-num">[01]</div>
+            <h4 class="mb-3">分析影片 / ANALYSIS VIDEO</h4>
+            <div class="ratio ratio-16x9 bg-black rounded overflow-hidden">
+              <video id="detailVideo" controls class="w-100 h-100"></video>
+            </div>
+            <div class="mt-3">
+              <p class="mb-1"><strong>場次：</strong><span id="detailSession"></span></p>
+              <p class="mb-1"><strong>日期：</strong><span id="detailDate"></span></p>
+              <p class="mb-0 text-muted small" id="detailNote"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chart Visualization -->
+        <div class="col-lg-6">
+          <div class="tile h-100">
+            <div class="tile-num">[02]</div>
+            <h4 class="mb-3">部位曲線圖 / BODY PART CURVE</h4>
+            <div class="mb-3">
+              <label class="form-label">選擇部位 / SELECT PART</label>
+              <select class="form-select" id="partSelect">
+                <!-- Filled by JS -->
+              </select>
+            </div>
+            <div id="chartContainer" class="d-flex justify-content-center align-items-center" style="min-height: 300px; width: 100%; border: 1px solid #eee; background: #fafafa;">
+              <img id="posePlot" src="" alt="Plot" class="img-fluid d-none">
+              <div id="plotSpinner" class="spinner-border text-dark" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+              <a id="downloadPose" href="#" class="btn btn-sm btn-outline-dark" download>下載 Pose CSV</a>
+              <a id="downloadPeaks" href="#" class="btn btn-sm btn-outline-dark" download>下載 Peaks CSV</a>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
+
+    <div id="emptyHint" class="tile text-center d-none mt-3">
+      <div class="tile-num">[EMPTY]</div>
+      <h4 class="mt-2">目前尚無紀錄</h4>
+      <p>該選手尚未進行任何分析。</p>
+    </div>
   </main>
+
+  <!-- Edit Record Modal -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content tile border-0">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold">編輯紀錄資訊 / EDIT RECORD</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">場次名稱 / SESSION NAME</label>
+            <input type="text" class="form-control" id="editSession">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">備註 / NOTE</label>
+            <textarea class="form-control" id="editNote" rows="4"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" class="btn btn-dark" id="saveEditBtn">儲存變更</button>
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}

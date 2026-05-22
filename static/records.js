@@ -1,37 +1,295 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const recordsList = document.getElementById('recordsList');
-  if (recordsList) {
-    const records = [
-      { id: 1, name: 'Lin C.H.', session: '2026 春季測驗 #2', date: '2026-05-20', cadence: 186, speed: 6.62 },
-      { id: 2, name: 'Wang Y.T.', session: '常規訓練', date: '2026-05-18', cadence: 178, speed: 6.10 },
-      { id: 3, name: 'Lin C.H.', session: '2026 春季測驗 #1', date: '2026-04-10', cadence: 184, speed: 6.55 }
-    ];
+    const playerSection = document.getElementById('playerSection');
+    const recordsSection = document.getElementById('recordsSection');
+    const detailSection = document.getElementById('detailSection');
+    const playerList = document.getElementById('playerList');
+    const recordsList = document.getElementById('recordsList');
+    const emptyHint = document.getElementById('emptyHint');
+    
+    const backToPlayers = document.getElementById('backToPlayers');
+    const backToRecords = document.getElementById('backToRecords');
+    
+    const statTotal = document.getElementById('statTotal');
+    const statAthletes = document.getElementById('statAthletes');
+    
+    let allPlayers = [];
+    let currentPlayer = null;
+    let currentRecords = [];
+    let poseData = null;
+    let chartInstance = null;
 
-    document.getElementById('statTotal').textContent = '248';
-    document.getElementById('statAthletes').textContent = '12';
-    document.getElementById('resultCount').textContent = `共 ${records.length} 筆紀錄`;
+    // Load initial data
+    fetchPlayers();
+    fetchStats();
 
-    let html = '';
-    records.forEach(r => {
-      html += `
-        <div class="tile d-flex align-items-center gap-4 mb-2" style="padding: 1rem 1.25rem;">
-          <div>
-            <div class="fw-semibold">${r.name}</div>
-            <div class="small text-muted">${r.session}</div>
-          </div>
-          <div class="ms-auto d-none d-sm-block text-end">
-            <div class="mono small">${r.cadence} spm</div>
-            <div class="mono small text-muted">CADENCE</div>
-          </div>
-          <div class="d-none d-md-block text-end" style="min-width: 80px;">
-            <div class="mono small">${r.speed} m/s</div>
-            <div class="mono small text-muted">SPEED</div>
-          </div>
-          <div class="mono small text-muted ms-3">${r.date}</div>
-          <a href="#" class="btn btn-sm btn-outline-dark ms-3">查看</a>
-        </div>
-      `;
-    });
-    recordsList.innerHTML = html;
-  }
+    function fetchPlayers() {
+        fetch('/get_players')
+            .then(res => res.json())
+            .then(data => {
+                allPlayers = data;
+                renderPlayers(data);
+                statAthletes.textContent = data.length;
+            })
+            .catch(err => console.error('Error fetching players:', err));
+    }
+
+    function fetchStats() {
+        fetch('/api/records')
+            .then(res => res.json())
+            .then(data => {
+                statTotal.textContent = data.length;
+            })
+            .catch(err => console.error('Error fetching stats:', err));
+    }
+
+    function renderPlayers(players) {
+        playerList.innerHTML = '';
+        players.forEach(p => {
+            const col = document.createElement('div');
+            col.className = 'col-md-4 col-lg-3';
+            col.innerHTML = `
+                <div class="tile player-card h-100 cursor-pointer" data-id="${p.id}" data-name="${p.name}">
+                    <div class="tile-num">${p.id}</div>
+                    <h5 class="mb-1">${p.name}</h5>
+                    <div class="small text-muted">${p.sport || '未指定運動'}</div>
+                    <div class="mt-2 mono small">${p.gender || '-'} | ${p.height || '-'}cm | ${p.weight || '-'}kg</div>
+                </div>
+            `;
+            col.querySelector('.player-card').addEventListener('click', () => {
+                showRecords(p.id, p.name);
+            });
+            playerList.appendChild(col);
+        });
+    }
+
+    function showRecords(playerId, playerName) {
+        currentPlayer = { id: playerId, name: playerName };
+        document.getElementById('currentPlayerName').textContent = playerName;
+        
+        playerSection.classList.add('d-none');
+        recordsSection.classList.remove('d-none');
+        detailSection.classList.add('d-none');
+        
+        fetch(`/api/records?player_id=${playerId}`)
+            .then(res => res.json())
+            .then(data => {
+                currentRecords = data;
+                renderRecords(data);
+            })
+            .catch(err => console.error('Error fetching records:', err));
+    }
+
+    function renderRecords(records) {
+        recordsList.innerHTML = '';
+        if (records.length === 0) {
+            emptyHint.classList.remove('d-none');
+            return;
+        }
+        emptyHint.classList.add('d-none');
+        
+        document.getElementById('resultCount').textContent = `共 ${records.length} 筆紀錄`;
+
+        records.forEach(r => {
+            const tile = document.createElement('div');
+            tile.className = 'tile d-flex align-items-center gap-4 mb-2';
+            tile.style.padding = '1rem 1.25rem';
+            tile.innerHTML = `
+                <div class="flex-grow-1">
+                    <div class="fw-semibold">${r.session}</div>
+                    <div class="small text-muted">${r.note || '無備註'}</div>
+                </div>
+                <div class="mono small text-muted text-end">
+                    <div>${r.date}</div>
+                    <div>CREATED AT</div>
+                </div>
+                <div class="ms-3 d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-dark view-detail" data-id="${r.id}">查看詳情</button>
+                    <button class="btn btn-sm btn-outline-danger delete-record" data-id="${r.id}"><i class="bi bi-trash"></i></button>
+                </div>
+            `;
+            tile.querySelector('.view-detail').addEventListener('click', () => {
+                showDetail(r.id);
+            });
+            tile.querySelector('.delete-record').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('確定要刪除這筆紀錄嗎？此動作無法復原，且會刪除相關影片與資料。')) {
+                    deleteRecord(r.id);
+                }
+            });
+            recordsList.appendChild(tile);
+        });
+    }
+
+    function deleteRecord(recordId) {
+        fetch(`/api/record/${recordId}`, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.message) {
+                    alert('紀錄已刪除');
+                    // Refresh records list
+                    if (currentPlayer) {
+                        showRecords(currentPlayer.id, currentPlayer.name);
+                    } else {
+                        fetchStats();
+                    }
+                } else {
+                    alert('刪除失敗: ' + data.error);
+                }
+            })
+            .catch(err => {
+                console.error('Error deleting record:', err);
+                alert('刪除時發生錯誤');
+            });
+    }
+
+    let currentRecordId = null;
+    let currentRecordData = null;
+
+    function showDetail(recordId) {
+        currentRecordId = recordId;
+        fetch(`/api/record/${recordId}`)
+            .then(res => res.json())
+            .then(record => {
+                currentRecordData = record;
+                document.getElementById('detailSession').textContent = record.session;
+                document.getElementById('detailDate').textContent = record.date;
+                document.getElementById('detailNote').textContent = record.note;
+                
+                const video = document.getElementById('detailVideo');
+                video.src = `/static/${record.result_video || record.original_video}`;
+                
+                document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
+                document.getElementById('downloadPeaks').href = record.peaks_csv ? `/static/${record.peaks_csv}` : '#';
+                
+                recordsSection.classList.add('d-none');
+                detailSection.classList.remove('d-none');
+                
+                // Parts based on standard pose output
+                const parts = [
+                    'Right_Ankle', 'Left_Ankle', 'R_Shoulder', 'L_Shoulder', 
+                    'R_Hip', 'L_Hip', 'R_Knee', 'L_Knee'
+                ];
+                populatePartSelect(parts);
+                updateChart();
+            })
+            .catch(err => console.error('Error fetching record detail:', err));
+    }
+
+    // Edit logic
+    const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+    document.getElementById('editRecordBtn').onclick = () => {
+        if (!currentRecordData) return;
+        document.getElementById('editSession').value = currentRecordData.session;
+        document.getElementById('editNote').value = currentRecordData.note || '';
+        editModal.show();
+    };
+
+    document.getElementById('saveEditBtn').onclick = () => {
+        const sessionName = document.getElementById('editSession').value.trim();
+        const note = document.getElementById('editNote').value.trim();
+        
+        if (!sessionName) {
+            alert('場次名稱不能為空');
+            return;
+        }
+
+        fetch(`/api/record/${currentRecordId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_name: sessionName, note: note })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.message) {
+                editModal.hide();
+                alert('更新成功');
+                showDetail(currentRecordId); // Refresh detail view
+            } else {
+                alert('更新失敗: ' + data.error);
+            }
+        })
+        .catch(err => console.error('Error updating record:', err));
+    };
+
+    function populatePartSelect(parts) {
+        const select = document.getElementById('partSelect');
+        select.innerHTML = '';
+        parts.forEach(part => {
+            const option = document.createElement('option');
+            option.value = part;
+            option.textContent = part.replace(/_/g, ' ');
+            select.appendChild(option);
+        });
+        select.onchange = updateChart;
+    }
+
+    function updateChart() {
+        const part = document.getElementById('partSelect').value;
+        const img = document.getElementById('posePlot');
+        const spinner = document.getElementById('plotSpinner');
+        
+        if (!currentRecordId || !part) return;
+
+        img.classList.add('d-none');
+        spinner.classList.remove('d-none');
+
+        fetch(`/api/plot_image/${currentRecordId}?part=${part}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.plot_url) {
+                    img.src = data.plot_url;
+                    img.classList.remove('d-none');
+                } else {
+                    console.error('Plot error:', data.error);
+                }
+                spinner.classList.add('d-none');
+            })
+            .catch(err => {
+                console.error('Error fetching plot image:', err);
+                spinner.classList.add('d-none');
+            });
+    }
+
+    backToPlayers.onclick = () => {
+        recordsSection.classList.add('d-none');
+        playerSection.classList.remove('d-none');
+        emptyHint.classList.add('d-none');
+    };
+
+    backToRecords.onclick = () => {
+        detailSection.classList.add('d-none');
+        recordsSection.classList.remove('d-none');
+        const video = document.getElementById('detailVideo');
+        video.pause();
+        video.src = '';
+    };
+
+    document.getElementById('deleteCurrentRecord').onclick = () => {
+        if (currentRecordId && confirm('確定要刪除這筆紀錄嗎？此動作無法復原。')) {
+            fetch(`/api/record/${currentRecordId}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.message) {
+                        alert('紀錄已刪除');
+                        backToRecords.onclick(); // Go back to list
+                        if (currentPlayer) {
+                            showRecords(currentPlayer.id, currentPlayer.name);
+                        }
+                    } else {
+                        alert('刪除失敗: ' + data.error);
+                    }
+                })
+                .catch(err => console.error('Error deleting record:', err));
+        }
+    };
+
+    // Search functionality
+    document.getElementById('searchInput').oninput = (e) => {
+        const term = e.target.value.toLowerCase();
+        const filtered = currentRecords.filter(r => 
+            r.session.toLowerCase().includes(term) || 
+            (r.note && r.note.toLowerCase().includes(term))
+        );
+        renderRecords(filtered);
+    };
 });
