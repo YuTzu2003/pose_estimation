@@ -184,11 +184,10 @@
             <tr>
               <th style="width:80px">#</th>
               <th>FRAME</th>
-              <th>TIME (s)</th>
               <th>FOOT</th>
-              <th>STRIDE (m)</th>
-              <th>SPEED (m/s)</th>
-              <th style="width:120px">CONFIDENCE</th>
+              <th>X (px)</th>
+              <th>Y (px)</th>
+              <th style="width:100px">ACTION</th>
             </tr>
           </thead>
           <tbody id="csvBody"><!-- filled by JS --></tbody>
@@ -196,8 +195,9 @@
       </div>
 
       <div class="d-flex gap-2 mt-3">
-        <button class="btn btn-dark" onclick="alert('已儲存修改後的 CSV（前端示範）')">儲存修改</button>
-        <button class="btn btn-outline-dark" onclick="alert('已使用新 CSV 重新生成步幅標註影片（前端示範）')">重新生成影片</button>
+        <button class="btn btn-outline-dark" onclick="window.addNewPeak()">新增步點</button>
+        <button class="btn btn-outline-dark" id="regenBtn">重新生成影片</button>
+        <button class="btn btn-dark" id="saveProjectBtn">保存專案</button>
         <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
       </div>
     </section>

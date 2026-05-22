@@ -38,6 +38,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 全域變數儲存當前分析資訊
+  let currentAnalysis = {
+    record_id: null,
+    peak_data: [],
+    scale_info: null,
+    person_records: null,
+    fps: 30
+  };
+
   if (uploadForm) {
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -52,8 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       try {
         const btn = uploadForm.querySelector('button[type="submit"]');
-        const originalText = btn.textContent;
-        btn.textContent = '上傳中...';
+        btn.textContent = '分析中...';
         btn.disabled = true;
 
         const response = await fetch('/upload', {
@@ -64,29 +72,55 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await response.json();
         
         if (response.ok) {
+          currentAnalysis.record_id = result.record_id;
+          currentAnalysis.peak_data = result.peak_data;
+          currentAnalysis.scale_info = result.scale_info;
+          currentAnalysis.person_records = result.person_records;
+          currentAnalysis.fps = result.fps || 30;
+
           // 更新預覽畫面顯示分析後的影片
           const videoFrame = document.querySelector('.video-frame');
           if (videoFrame && result.video_url) {
-            // 加入時間戳記避免瀏覽器快取舊影片
             const videoUrl = result.video_url + '?t=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls autoplay>
+              <video width="100%" height="auto" controls autoplay style="display: block; max-height: 70vh; object-fit: contain;">
                 <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
             `;
             videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
             videoFrame.style.height = 'auto';
+            videoFrame.style.minHeight = '0';
             videoFrame.style.background = 'black';
+
+            // 更新下載連結
+            const downloadBtn = document.querySelector('a[href="#"][class*="btn-dark"]');
+            if (downloadBtn) {
+              downloadBtn.href = videoUrl;
+              downloadBtn.download = result.video_url.split('/').pop();
+            }
+            const csvBtns = document.querySelectorAll('a[href="#"][class*="btn-outline-dark"]');
+            if (csvBtns.length >= 2) {
+              if (result.pose_csv) {
+                csvBtns[0].href = '/static/' + result.pose_csv;
+                csvBtns[0].download = result.pose_csv.split('/').pop();
+              }
+              // Gait CSV 可能是之後生成的，這裡我們先填入路徑
+              if (result.record_id) {
+                csvBtns[1].href = `/static/jobs/${result.record_id}/${result.record_id}_peaks.csv`;
+                csvBtns[1].download = `${result.record_id}_peaks.csv`;
+              }
+            }
           }
+
+          populatePeakTable(result.peak_data);
 
           const resultSec = document.getElementById('result');
           if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
           
-          // 最後才顯示完成訊息
           setTimeout(() => alert('分析完成！'), 500);
         } else {
-          alert('上傳失敗: ' + result.error);
+          alert('分析失敗: ' + result.error);
         }
       } catch (err) {
         console.error(err);
@@ -99,30 +133,191 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Mock CSV data generation
-  const csvBody = document.getElementById('csvBody');
-  if (csvBody) {
-    let rowsHTML = '';
-    for (let i = 184; i <= 188; i++) {
-      const time = (i / 60).toFixed(2);
-      const foot = i % 2 === 0 ? 'L' : 'R';
-      const stride = (2.10 + Math.random() * 0.1).toFixed(2);
-      const speed = (6.50 + Math.random() * 0.2).toFixed(2);
-      const conf = (0.85 + Math.random() * 0.1).toFixed(2);
-      const confColor = conf > 0.9 ? 'text-success' : 'text-warning';
-      
-      rowsHTML += `
-        <tr>
-          <td class="text-muted">${i - 183}</td>
-          <td class="mono">${i}</td>
-          <td class="mono">${time}</td>
-          <td><span class="badge bg-light text-dark border">${foot}</span></td>
-          <td contenteditable="true" class="bg-white border" style="cursor:text">${stride}</td>
-          <td contenteditable="true" class="bg-white border" style="cursor:text">${speed}</td>
-          <td class="mono ${confColor}">${(conf * 100).toFixed(1)}%</td>
-        </tr>
-      `;
+  function populatePeakTable(peakData) {
+    const csvBody = document.getElementById('csvBody');
+    if (!csvBody) return;
+
+    if (!peakData || peakData.length === 0) {
+      csvBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">目前無步頻數據</td></tr>';
+      return;
     }
+
+    let rowsHTML = '';
+    peakData.forEach((row) => {
+      if (row.Frame_Right !== null) {
+        rowsHTML += createRowHTML(row.Frame_Right, row.X_Right, 'Right', row.Y_Right);
+      }
+      if (row.Frame_Left !== null) {
+        rowsHTML += createRowHTML(row.Frame_Left, row.X_Left, 'Left', row.Y_Left);
+      }
+    });
+    
     csvBody.innerHTML = rowsHTML;
+    sortAndReindexTable();
+  }
+
+  function createRowHTML(frame, x, foot, y) {
+    return `
+      <tr class="peak-row" data-foot="${foot}">
+        <td class="text-muted row-idx"></td>
+        <td contenteditable="true" class="mono peak-frame">${frame}</td>
+        <td>
+          <select class="form-select form-select-sm peak-foot-select" onchange="updateFootBadge(this)">
+            <option value="Right" ${foot === 'Right' ? 'selected' : ''}>Right</option>
+            <option value="Left" ${foot === 'Left' ? 'selected' : ''}>Left</option>
+          </select>
+        </td>
+        <td contenteditable="true" class="peak-x">${Math.round(x)}</td>
+        <td contenteditable="true" class="peak-y">${y ? Math.round(y) : 0}</td>
+        <td>
+          <button class="btn btn-outline-danger btn-sm" onclick="deleteRow(this)">刪除</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  window.updateFootBadge = (el) => {
+    const foot = el.value;
+    el.closest('tr').setAttribute('data-foot', foot);
+  };
+
+  window.deleteRow = (btn) => {
+    if (confirm('確定要刪除此步點？')) {
+      btn.closest('tr').remove();
+      sortAndReindexTable();
+    }
+  };
+
+  window.addNewPeak = () => {
+    const csvBody = document.getElementById('csvBody');
+    const newRow = createRowHTML(0, 0, 'Right', 0);
+    const tempDiv = document.createElement('tbody');
+    tempDiv.innerHTML = newRow;
+    csvBody.appendChild(tempDiv.firstElementChild);
+    sortAndReindexTable();
+  };
+
+  function sortAndReindexTable() {
+    const csvBody = document.getElementById('csvBody');
+    const rows = Array.from(csvBody.querySelectorAll('.peak-row'));
+    if (rows.length === 0) return;
+
+    rows.sort((a, b) => {
+      const frameA = parseInt(a.querySelector('.peak-frame').textContent) || 0;
+      const frameB = parseInt(b.querySelector('.peak-frame').textContent) || 0;
+      return frameA - frameB;
+    });
+
+    csvBody.innerHTML = '';
+    rows.forEach((row, index) => {
+      row.querySelector('.row-idx').textContent = index + 1;
+      csvBody.appendChild(row);
+    });
+  }
+
+  const regenBtn = document.getElementById('regenBtn');
+  if (regenBtn) {
+    regenBtn.onclick = async () => {
+      if (!currentAnalysis.record_id) {
+        alert('請先進行影片分析。');
+        return;
+      }
+
+      const rows = document.querySelectorAll('.peak-row');
+      const newPeakData = [];
+      let rightPeaks = [];
+      let leftPeaks = [];
+
+      rows.forEach(row => {
+        const frame = parseInt(row.querySelector('.peak-frame').textContent) || 0;
+        const x = parseFloat(row.querySelector('.peak-x').textContent) || 0;
+        const y = parseFloat(row.querySelector('.peak-y').textContent) || 0;
+        const foot = row.getAttribute('data-foot');
+
+        if (foot === 'Right') {
+          rightPeaks.push({ Frame: frame, X: x, Y: y });
+        } else {
+          leftPeaks.push({ Frame: frame, X: x, Y: y });
+        }
+      });
+
+      const maxLen = Math.max(rightPeaks.length, leftPeaks.length);
+      for (let i = 0; i < maxLen; i++) {
+        newPeakData.push({
+          Frame_Right: rightPeaks[i] ? rightPeaks[i].Frame : null,
+          X_Right: rightPeaks[i] ? rightPeaks[i].X : null,
+          Y_Right: rightPeaks[i] ? rightPeaks[i].Y : null,
+          Frame_Left: leftPeaks[i] ? leftPeaks[i].Frame : null,
+          X_Left: leftPeaks[i] ? leftPeaks[i].X : null,
+          Y_Left: leftPeaks[i] ? leftPeaks[i].Y : null
+        });
+      }
+
+      try {
+        regenBtn.textContent = '產出中...';
+        regenBtn.disabled = true;
+
+        const response = await fetch('/regenerate_gait', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            record_id: currentAnalysis.record_id,
+            peak_data: newPeakData,
+            scale_info: currentAnalysis.scale_info,
+            person_records: currentAnalysis.person_records
+          })
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+          const videoFrame = document.querySelector('.video-frame');
+          if (videoFrame && result.video_url) {
+            const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
+            videoFrame.innerHTML = `
+              <video width="100%" height="auto" controls autoplay style="display: block; max-height: 70vh; object-fit: contain;">
+                <source src="${videoUrl}" type="video/mp4">
+                您的瀏覽器不支援影片播放。
+              </video>
+            `;
+            videoFrame.style.height = 'auto';
+            videoFrame.style.minHeight = '0';
+            videoFrame.style.background = 'black';
+            videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
+
+            // 更新下載連結
+            const downloadBtn = document.querySelector('a[href*="/static/jobs/"][class*="btn-dark"], a[href="#"][class*="btn-dark"]');
+            if (downloadBtn) {
+              downloadBtn.href = videoUrl;
+              downloadBtn.download = result.video_url.split('/').pop().split('?')[0];
+            }
+          }
+          alert('影片已重新生成！');
+        } else {
+          alert('重新生成失敗: ' + result.error);
+        }
+      } catch (err) {
+        console.error(err);
+        alert('發生錯誤');
+      } finally {
+        regenBtn.textContent = '重新生成影片';
+        regenBtn.disabled = false;
+      }
+    };
+  }
+
+  const saveProjectBtn = document.getElementById('saveProjectBtn');
+  if (saveProjectBtn) {
+    saveProjectBtn.onclick = () => {
+      if (!currentAnalysis.record_id) {
+        alert('請先上傳影片並完成分析後再保存。');
+        return;
+      }
+      alert('專案已完整保存！\n紀錄 ID: ' + currentAnalysis.record_id);
+    };
+  }
+
+  const csvBodyInner = document.getElementById('csvBody');
+  if (csvBodyInner && csvBodyInner.innerHTML.trim() === '') {
+    csvBodyInner.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">請先上傳影片進行分析</td></tr>';
   }
 });

@@ -45,13 +45,26 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
     # 建立輸出影片 (使用 avc1 確保網頁可播放)
     result_video_filename = f"{record_id}_result.mp4"
     result_video_path = os.path.join(output_dir, result_video_filename)
-    fourcc = cv2.VideoWriter_fourcc(*'avc1') 
-    out = cv2.VideoWriter(result_video_path, fourcc, fps, (width, height))
     
-    if not out.isOpened():
-        # 如果 avc1 不可用，退回到 mp4v
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(result_video_path, fourcc, fps, (width, height))
+    # 嘗試多種 FourCC 格式
+    fourccs = ['avc1', 'mp4v', 'XVID', 'MJPG']
+    out = None
+    for fcc in fourccs:
+        ext = 'mp4' if fcc in ['avc1', 'mp4v'] else 'avi'
+        test_path = result_video_path if ext == 'mp4' else result_video_path.replace('.mp4', '.avi')
+        fourcc = cv2.VideoWriter_fourcc(*fcc)
+        out = cv2.VideoWriter(test_path, fourcc, fps, (width, height))
+        if out.isOpened():
+            print(f"Successfully opened VideoWriter with codec: {fcc}")
+            if ext == 'avi':
+                result_video_filename = result_video_filename.replace('.mp4', '.avi')
+                result_video_path = test_path
+            break
+    
+    if out is None or not out.isOpened():
+        print("Error: Could not open VideoWriter with any supported codec.")
+        # 最後一搏：使用不帶 FourCC 的方式 (讓 OpenCV 自己決定)
+        out = cv2.VideoWriter(result_video_path, -1, fps, (width, height))
 
     # CSV 檔案
     csv_filename = f"{record_id}_pose.csv"
@@ -87,8 +100,8 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
             continue
 
         # 圖像預處理
-        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = letterbox(img, width, stride=64, auto=True)[0]
+        img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img, ratio, (dw, dh) = letterbox(img_rgb, width, stride=64, auto=True)
         img = transforms.ToTensor()(img)
         img = torch.tensor(np.array([img.numpy()])).to(device).float()
 
@@ -101,10 +114,13 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
         plot_img = frame.copy()
 
         for idx in range(output.shape[0]):
-            kpts = output[idx, 7:].T
-            # 由於 letterbox 可能會改變座標比例，需要縮放回來
-            # 這裡簡單假設 letterbox 是在原圖尺寸下運作 (因為傳入了 width)
-            # 若有縮放邏輯需在此校正
+            kpts = output[idx, 7:].copy()
+            
+            # 座標縮放回原圖
+            for i in range(len(kpts) // 3):
+                kpts[3 * i] = (kpts[3 * i] - dw) / ratio[0]
+                kpts[3 * i + 1] = (kpts[3 * i + 1] - dh) / ratio[1]
+                
             joints_list = plot_skeleton_kpts(plot_img, kpts, 3)
 
             # 計算角度 (骨幹分析)

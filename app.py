@@ -8,6 +8,8 @@ from modules.db import get_conn, release_conn
 from service.player import player_bp
 from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis
+from modules.pipeline.peak_smooth import peak_smooth
+from modules.pipeline.step_metrics import run_step
 
 app = Flask(__name__)
 app.register_blueprint(player_bp)
@@ -76,21 +78,65 @@ def upload():
 
     # 執行偵測與分析
     try:
+        import cv2
+        cap_temp = cv2.VideoCapture(abs_video_path)
+        fps = cap_temp.get(cv2.CAP_PROP_FPS)
+        cap_temp.release()
+
         person_records = get_person_records(abs_video_path)
         if person_records:
             records_str = ", ".join([f"Frame {r[0]}-{r[1]}" for r in person_records])
             
-            # 執行骨幹分析 (與選配的關鍵點追蹤)
+            # 1. 執行骨幹分析 (與選配的關鍵點追蹤)
             res_video, res_csv = run_pose_analysis(
                 abs_video_path, project_dir, record_id, 
                 person_records, enable_track=enable_track
             )
+            
             result_video_path = f"jobs/{record_id}/{res_video}"
             pose_csv_path = f"jobs/{record_id}/{res_csv}"
+            
+            # 2. 如果選擇了步頻分析 (Gait Analysis)
+            if 'gait' in selected_modules:
+                pose_csv_abs = os.path.join(project_dir, res_csv)
+                peaks_csv_name = f"{record_id}_peaks.csv"
+                peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
+                
+                # 平滑與波峰偵測
+                if peak_smooth(pose_csv_abs, peaks_csv_abs):
+                    # 讀取剛剛產生的 peak data 回傳給前端
+                    try:
+                        import pandas as pd
+                        peak_df = pd.read_csv(peaks_csv_abs)
+                        # 將 NaN 轉為 None 方便 JSON 化
+                        peak_data_list = peak_df.where(pd.notnull(peak_df), None).to_dict(orient='records')
+                    except Exception as e:
+                        print(f"Error reading peaks csv: {e}")
+                        peak_data_list = []
+
+                    # 步頻與速度計算
+                    gait_video_name = f"{record_id}_gait.mp4"
+                    gait_video_abs = os.path.join(project_dir, gait_video_name)
+                    
+                    # 計算比例尺
+                    ratio = float(scale_reference) / float(scale_pixels)
+                    
+                    # 傳入骨幹分析後的影片進行疊加
+                    input_video_for_gait = os.path.join(project_dir, res_video)
+                    
+                    final_gait_video = run_step(
+                        input_video_for_gait, peaks_csv_abs, gait_video_abs, 
+                        ratio=ratio, person_records=person_records
+                    )
+                    
+                    if final_gait_video:
+                        result_video_path = f"jobs/{record_id}/{final_gait_video}"
+                        
         else:
             records_str = "未偵測到人體"
             result_video_path = None
             pose_csv_path = None
+            peak_data_list = []
     except Exception as e:
         print(f"Analysis error: {e}")
         import traceback
@@ -99,6 +145,7 @@ def upload():
         person_records = []
         result_video_path = None
         pose_csv_path = None
+        peak_data_list = []
 
     db_relative_path = f"jobs/{record_id}/{filename}"
     full_note = f"{note}\n[比例尺: {scale_reference}m = {scale_pixels}px]\n[人體偵測區間: {records_str}]"
@@ -126,8 +173,78 @@ def upload():
         'record_id': record_id, 
         'message': '分析完成！',
         'video_url': final_video_url,
-        'person_records': person_records
+        'person_records': person_records,
+        'peak_data': peak_data_list,
+        'pose_csv': pose_csv_path,
+        'gait_video': result_video_path,
+        'fps': fps,
+        'scale_info': {
+            'reference': scale_reference,
+            'pixels': scale_pixels
+        }
     })
+
+@app.route('/regenerate_gait', methods=['POST'])
+def regenerate_gait():
+    data = request.json
+    record_id = data.get('record_id')
+    peak_data = data.get('peak_data') # 陣列 [{Frame_Right, X_Right, ...}, ...]
+    scale_info = data.get('scale_info')
+    
+    if not record_id or not peak_data:
+        return jsonify({'error': 'Missing parameters'}), 400
+        
+    project_dir = os.path.join(JOBS_DIR, record_id)
+    peaks_csv_abs = os.path.join(project_dir, f"{record_id}_peaks.csv")
+    
+    try:
+        import pandas as pd
+        df = pd.DataFrame(peak_data)
+        df.to_csv(peaks_csv_abs, index=False)
+        
+        # 重新執行 run_step
+        # 我們需要找出原始的分析影片路徑
+        # 從資料庫或檔案系統找
+        res_video = f"{record_id}_result.mp4"
+        input_video_for_gait = os.path.join(project_dir, res_video)
+        
+        gait_video_name = f"{record_id}_gait_v2.mp4"
+        gait_video_abs = os.path.join(project_dir, gait_video_name)
+        
+        ratio = float(scale_info['reference']) / float(scale_info['pixels'])
+        
+        # 這裡需要 person_records，可以從資料庫拿，或者如果 run_step 沒給就是全部
+        # 為了簡化，我們先不傳 person_records (如果 user 已經在前端看到正確對應的 Frame)
+        # 或者我們在 upload 時也回傳 person_records
+        person_records = data.get('person_records')
+        
+        final_gait_video = run_step(
+            input_video_for_gait, peaks_csv_abs, gait_video_abs, 
+            ratio=ratio, person_records=person_records
+        )
+        
+        if final_gait_video:
+            result_video_path = f"jobs/{record_id}/{final_gait_video}"
+            
+            # 更新資料庫
+            conn = get_conn()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE Record SET Result_Video_Path = ? WHERE Record_id = ?", (result_video_path, record_id))
+                conn.commit()
+            finally:
+                release_conn(conn)
+                
+            return jsonify({
+                'success': True,
+                'video_url': f"/static/{result_video_path}?t={int(time.time())}"
+            })
+        else:
+            return jsonify({'error': 'Failed to generate video'}), 500
+            
+    except Exception as e:
+        print(f"Regenerate error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/player.html')
 def player_page():
