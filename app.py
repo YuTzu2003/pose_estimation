@@ -13,8 +13,20 @@ from modules.pipeline.pose_angle_track import run_pose_analysis
 from modules.pipeline.peak_smooth import peak_smooth
 from modules.pipeline.step_metrics import run_step
 
+import threading
+
 app = Flask(__name__)
-# ... (rest of the file until regenerate_gait)
+# Global dictionary to store progress
+progress_data = {}
+progress_lock = threading.Lock()
+
+@app.route('/api/progress/<job_id>')
+def get_progress(job_id):
+    with progress_lock:
+        data = progress_data.get(job_id, {"progress": 0, "status": "等待中..."})
+    return jsonify(data)
+
+# ... (rest of imports)
 app.register_blueprint(player_bp)
 app.register_blueprint(record_bp)
 JOBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'jobs')
@@ -81,20 +93,34 @@ def upload():
     file.save(abs_video_path)
 
     # 執行偵測與分析
+    job_id = request.form.get('job_id')
+    
+    def update_progress(percent, status):
+        if job_id:
+            with progress_lock:
+                progress_data[job_id] = {"progress": percent, "status": status}
+
     try:
         import cv2
         cap_temp = cv2.VideoCapture(abs_video_path)
         fps = cap_temp.get(cv2.CAP_PROP_FPS)
         cap_temp.release()
 
+        update_progress(5, "正在執行人體偵測...")
         person_records = get_person_records(abs_video_path)
         if person_records:
             records_str = ", ".join([f"Frame {r[0]}-{r[1]}" for r in person_records])
             
             # 1. 執行骨幹分析 (與選配的關鍵點追蹤)
+            update_progress(10, "開始骨幹分析...")
+            def pose_progress(p, s):
+                # Map pose analysis to 10% - 60%
+                update_progress(10 + p * 0.5, s)
+
             res_video, res_csv = run_pose_analysis(
                 abs_video_path, project_dir, record_id, 
-                person_records, enable_track=enable_track
+                person_records, enable_track=enable_track,
+                progress_callback=pose_progress
             )
             
             result_video_path = f"jobs/{record_id}/{res_video}"
@@ -102,6 +128,7 @@ def upload():
             
             # 2. 如果選擇了步頻分析 (Gait Analysis)
             if 'gait' in selected_modules:
+                update_progress(65, "正在計算步頻指標...")
                 pose_csv_abs = os.path.join(project_dir, res_csv)
                 peaks_csv_name = f"{record_id}_peaks.csv"
                 peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
@@ -128,14 +155,21 @@ def upload():
                     # 傳入骨幹分析後的影片進行疊加
                     input_video_for_gait = os.path.join(project_dir, res_video)
                     
+                    update_progress(70, "開始生成步頻影片...")
+                    def step_progress(p, s):
+                        # Map step analysis to 70% - 95%
+                        update_progress(70 + p * 0.25, s)
+
                     final_gait_video = run_step(
                         input_video_for_gait, peaks_csv_abs, gait_video_abs, 
-                        ratio=ratio, person_records=person_records
+                        ratio=ratio, person_records=person_records,
+                        progress_callback=step_progress
                     )
                     
                     if final_gait_video:
                         result_video_path = f"jobs/{record_id}/{final_gait_video}"
-                        
+            
+            update_progress(95, "正在儲存到資料庫...")
         else:
             records_str = "未偵測到人體"
             result_video_path = None
@@ -145,6 +179,7 @@ def upload():
         print(f"Analysis error: {e}")
         import traceback
         traceback.print_exc()
+        update_progress(100, f"分析失敗: {str(e)}")
         records_str = f"分析失敗: {str(e)}"
         person_records = []
         result_video_path = None
@@ -152,23 +187,21 @@ def upload():
         peak_data_list = []
 
     db_relative_path = f"jobs/{record_id}/{filename}"
-    full_note = f"{note}\n[比例尺: {scale_reference}m = {scale_pixels}px]\n[人體偵測區間: {records_str}]"
+    full_note = f"{note}\n[比例尺: {scale_reference}m = {scale_pixels}px]"
     
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO Record (
-                Record_id, Player_id, Session_name, Note, 
-                Original_Video_Path, Result_Video_Path, Pose_csv_path, Created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
-        """, (record_id, athlete, session_name, full_note, db_relative_path, result_video_path, pose_csv_path))
+        cursor.execute("""INSERT INTO Record (Record_id, Player_id, Session_name, Note, Original_Video_Path, Result_Video_Path, Pose_csv_path, Created_at) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())""", 
+                       (record_id, athlete, session_name, full_note, db_relative_path, result_video_path, pose_csv_path))
         conn.commit()
     except Exception as e:
         conn.rollback()
         return jsonify({'error': f'資料庫儲存失敗: {str(e)}'}), 500
     finally:
         release_conn(conn)   
+    
+    update_progress(100, "分析完成！")
     
     # 返回 URL 供前端預覽
     final_video_url = f"/static/{result_video_path}" if result_video_path else f"/static/{db_relative_path}"
@@ -182,17 +215,14 @@ def upload():
         'pose_csv': pose_csv_path,
         'gait_video': result_video_path,
         'fps': fps,
-        'scale_info': {
-            'reference': scale_reference,
-            'pixels': scale_pixels
-        }
+        'scale_info': {'reference': scale_reference,'pixels': scale_pixels}
     })
 
 @app.route('/regenerate_gait', methods=['POST'])
 def regenerate_gait():
     data = request.json
     record_id = data.get('record_id')
-    peak_data = data.get('peak_data') # 陣列 [{Frame_Right, X_Right, ...}, ...]
+    peak_data = data.get('peak_data')
     scale_info = data.get('scale_info')
     person_records = data.get('person_records')
     

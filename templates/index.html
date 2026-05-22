@@ -31,7 +31,7 @@
                 <span class="arrow">→</span>
                 <div class="tile-num">[02]</div>
                 <h4 class="fs-5">CSV 補真</h4>
-                <p class="small text-muted">針對偵測誤差進行手動修正並重新生成影片。</p>
+                <p class="small text-muted">針對偵測誤差進行手動修正並重新產生影片。</p>
               </a>
             </div>
             <div class="col-6">
@@ -137,8 +137,19 @@
           </div>
 
           <div class="d-grid gap-2 mt-4">
-            <button type="submit" class="btn btn-dark">開始分析 / START ANALYSIS</button>
+            <button type="submit" class="btn btn-dark" id="startBtn">開始分析 / START ANALYSIS</button>
             <button type="reset" class="btn btn-outline-dark">清除</button>
+          </div>
+
+          <!-- Progress Bar Section -->
+          <div id="progressContainer" class="mt-4 d-none">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="small mono text-muted" id="progressStatus">正在準備分析...</span>
+              <span class="small mono text-muted" id="progressPercent">0%</span>
+            </div>
+            <div class="progress" style="height: 6px; background-color: #eee;">
+              <div id="progressBar" class="progress-bar bg-dark" role="progressbar" style="width: 0%; transition: width 0.3s ease;"></div>
+            </div>
           </div>
         </div>
       </form>
@@ -165,7 +176,7 @@
       <div class="section-head">
         <span class="num-tag">03 / 03</span>
         <h3>CSV 補真 — 步幅與速度</h3>
-        <span class="right">直接點選表格儲存格進行修改，完成後重新生成影片。</span>
+        <span class="right">直接點選表格儲存格進行修改，完成後重新產生影片。</span>
       </div>
 
       <div class="alert d-flex align-items-center gap-3 mb-3" role="alert" style="border:1px solid var(--line); background:#fafafa;">
@@ -191,7 +202,7 @@
 
       <div class="d-flex gap-2 mt-3">
         <button class="btn btn-outline-dark" onclick="window.addNewPeak()">新增步點</button>
-        <button class="btn btn-outline-dark" id="regenBtn">重新生成影片</button>
+        <button class="btn btn-outline-dark" id="regenBtn">重新產生影片</button>
         <button class="btn btn-dark" id="saveProjectBtn">保存專案</button>
         <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
       </div>

@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const backToPlayers = document.getElementById('backToPlayers');
     const backToRecords = document.getElementById('backToRecords');
+    const breadcrumbNav = document.getElementById('breadcrumbNav');
     
     const statTotal = document.getElementById('statTotal');
     const statAthletes = document.getElementById('statAthletes');
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderPlayers(players) {
+        updateBreadcrumb('home');
         playerList.innerHTML = '';
         players.forEach(p => {
             const col = document.createElement('div');
@@ -64,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showRecords(playerId, playerName) {
         currentPlayer = { id: playerId, name: playerName };
+        updateBreadcrumb('records');
         document.getElementById('currentPlayerName').textContent = playerName;
         
         playerSection.classList.add('d-none');
@@ -100,7 +103,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="mono small text-muted text-end">
                     <div>${r.date}</div>
-                    <div>CREATED AT</div>
                 </div>
                 <div class="ms-3 d-flex gap-2">
                     <button class="btn btn-sm btn-outline-dark view-detail" data-id="${r.id}">查看詳情</button>
@@ -151,6 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(res => res.json())
             .then(record => {
                 currentRecordData = record;
+                updateBreadcrumb('detail', record);
                 document.getElementById('detailSession').textContent = record.session;
                 document.getElementById('detailDate').textContent = record.date;
                 document.getElementById('detailNote').textContent = record.note;
@@ -159,7 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 video.src = `/static/${record.result_video || record.original_video}`;
                 
                 document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
-                document.getElementById('downloadPeaks').href = record.peaks_csv ? `/static/${record.peaks_csv}` : '#';
                 
                 recordsSection.classList.add('d-none');
                 detailSection.classList.remove('d-none');
@@ -250,13 +252,66 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    function updateBreadcrumb(level, recordData = null) {
+        // Reset breadcrumb
+        breadcrumbNav.innerHTML = '';
+        
+        // Home always exists
+        const homeLi = document.createElement('li');
+        homeLi.className = 'breadcrumb-item';
+        const homeA = document.createElement('a');
+        homeA.href = '#';
+        homeA.className = 'text-decoration-none text-muted';
+        homeA.textContent = '選手列表';
+        homeA.onclick = (e) => {
+            e.preventDefault();
+            backToPlayers.onclick();
+        };
+        homeLi.appendChild(homeA);
+        breadcrumbNav.appendChild(homeLi);
+
+        if (level === 'home') {
+            homeLi.classList.add('active');
+            homeLi.innerHTML = '選手列表';
+        }
+
+        if (level === 'records' || level === 'detail') {
+            const playerLi = document.createElement('li');
+            playerLi.className = 'breadcrumb-item';
+            if (level === 'records') {
+                playerLi.classList.add('active');
+                playerLi.textContent = `選手: ${currentPlayer.name} (ID: ${currentPlayer.id})`;
+            } else {
+                const playerA = document.createElement('a');
+                playerA.href = '#';
+                playerA.className = 'text-decoration-none text-muted';
+                playerA.textContent = `選手: ${currentPlayer.name} (ID: ${currentPlayer.id})`;
+                playerA.onclick = (e) => {
+                    e.preventDefault();
+                    backToRecords.onclick();
+                };
+                playerLi.appendChild(playerA);
+            }
+            breadcrumbNav.appendChild(playerLi);
+        }
+
+        if (level === 'detail' && recordData) {
+            const recordLi = document.createElement('li');
+            recordLi.className = 'breadcrumb-item active';
+            recordLi.textContent = `紀錄: ${recordData.session} (資料夾: ${recordData.id})`;
+            breadcrumbNav.appendChild(recordLi);
+        }
+    }
+
     backToPlayers.onclick = () => {
+        updateBreadcrumb('home');
         recordsSection.classList.add('d-none');
         playerSection.classList.remove('d-none');
         emptyHint.classList.add('d-none');
     };
 
     backToRecords.onclick = () => {
+        updateBreadcrumb('records');
         detailSection.classList.add('d-none');
         recordsSection.classList.remove('d-none');
         const video = document.getElementById('detailVideo');

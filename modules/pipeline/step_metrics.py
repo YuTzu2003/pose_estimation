@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 
-def run_step(input_video, peaks_csv, output_video, ratio=1.0, person_records=None):
+def run_step(input_video, peaks_csv, output_video, ratio=1.0, person_records=None, progress_callback=None):
     csv_file = peaks_csv
     peak_data = pd.read_csv(csv_file)
 
@@ -60,11 +60,16 @@ def run_step(input_video, peaks_csv, output_video, ratio=1.0, person_records=Non
     # 初始化變數
     last_peak = None # (frame, x, label)
 
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_count = 0
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+            
+        if progress_callback and frame_count % 10 == 0:
+            percent = (frame_count / total_frames) * 100
+            progress_callback(percent, f"正在生成步頻分析影片 (幀 {frame_count}/{total_frames})")
 
         # 檢查當前幀是否有標記
         for peak_frame, x, label in all_peaks:

@@ -58,20 +58,59 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       
       const formData = new FormData(uploadForm);
+      // Generate a unique job ID for progress tracking
+      const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      formData.append('job_id', jobId);
       
+      const progressContainer = document.getElementById('progressContainer');
+      const progressBar = document.getElementById('progressBar');
+      const progressStatus = document.getElementById('progressStatus');
+      const progressPercent = document.getElementById('progressPercent');
+      const startBtn = document.getElementById('startBtn');
+
       try {
-        const btn = uploadForm.querySelector('button[type="submit"]');
-        btn.textContent = '分析中...';
-        btn.disabled = true;
+        startBtn.textContent = '分析中...';
+        startBtn.disabled = true;
+        
+        // Show progress bar
+        progressContainer.classList.remove('d-none');
+        progressBar.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressStatus.textContent = '正在上傳影片...';
+
+        // Start polling for progress
+        const pollInterval = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/progress/${jobId}`);
+            if (res.ok) {
+              const data = await res.json();
+              progressBar.style.width = data.progress + '%';
+              progressPercent.textContent = Math.round(data.progress) + '%';
+              progressStatus.textContent = data.status || '分析中...';
+              
+              if (data.progress >= 100) {
+                clearInterval(pollInterval);
+              }
+            }
+          } catch (err) {
+            console.error('Polling error:', err);
+          }
+        }, 1000);
 
         const response = await fetch('/upload', {
           method: 'POST',
           body: formData
         });
         
+        clearInterval(pollInterval); // Stop polling when request finishes
+        
         const result = await response.json();
         
         if (response.ok) {
+          // Finalize progress bar
+          progressBar.style.width = '100%';
+          progressPercent.textContent = '100%';
+          progressStatus.textContent = '分析完成！';
           currentAnalysis.record_id = result.record_id;
           currentAnalysis.peak_data = result.peak_data;
           currentAnalysis.scale_info = result.scale_info;
@@ -307,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error(err);
         alert('發生錯誤');
       } finally {
-        regenBtn.textContent = '重新生成影片';
+        regenBtn.textContent = '重新產生影片';
         regenBtn.disabled = false;
       }
     };

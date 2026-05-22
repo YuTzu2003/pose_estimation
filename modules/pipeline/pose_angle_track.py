@@ -26,7 +26,7 @@ def draw_history_points(image, points_list, color, radius=3):
         cv2.circle(image, pt, radius, color, -1)
 
 @torch.no_grad()
-def run_pose_analysis(source_path, output_dir, record_id, person_records, enable_track=False):
+def run_pose_analysis(source_path, output_dir, record_id, person_records, enable_track=False, progress_callback=None):
     """
     執行骨幹分析與關鍵點追蹤
     :param source_path: 原始影片路徑
@@ -34,6 +34,7 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
     :param record_id: 紀錄 ID
     :param person_records: 人體偵測到的區間 [(start, end), ...]
     :param enable_track: 是否啟用關鍵點追蹤
+    :param progress_callback: 進度回呼函數
     """
     model, device = load_model()
     cap = cv2.VideoCapture(source_path)
@@ -87,6 +88,9 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
     for start, end in person_records:
         for f in range(start, end + 1):
             valid_frames.add(f)
+            
+    total_valid_frames = len(valid_frames)
+    processed_valid_frames = 0
 
     frame_count = 0
     while cap.isOpened():
@@ -98,6 +102,11 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
         # 只針對有人的區間進行分析並寫入輸出影片 (達成切割效果)
         if frame_count not in valid_frames:
             continue
+            
+        processed_valid_frames += 1
+        if progress_callback and processed_valid_frames % 5 == 0:
+            percent = (processed_valid_frames / total_valid_frames) * 100
+            progress_callback(percent, f"正在分析骨幹 (幀 {processed_valid_frames}/{total_valid_frames})")
 
         # 圖像預處理
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
