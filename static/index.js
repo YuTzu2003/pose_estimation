@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (videoFrame && result.video_url) {
             const videoUrl = result.video_url + '?t=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
+              <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
                 <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
@@ -132,6 +132,15 @@ document.addEventListener('DOMContentLoaded', () => {
             videoFrame.style.minHeight = '0';
             videoFrame.style.background = 'transparent';
             videoFrame.style.border = 'none';
+
+            // Show speed control and apply current speed
+            const speedContainer = document.getElementById('previewSpeedContainer');
+            const speedSelector = document.getElementById('previewSpeed');
+            const previewVideo = document.getElementById('previewVideo');
+            if (speedContainer) speedContainer.classList.remove('d-none');
+            if (speedSelector && previewVideo) {
+                previewVideo.playbackRate = parseFloat(speedSelector.value);
+            }
 
             // 更新下載連結
             const downloadBtn = document.querySelector('a[href="#"][class*="btn-dark"]');
@@ -314,7 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (videoFrame && result.video_url) {
             const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
             videoFrame.innerHTML = `
-              <video width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
+              <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
                 <source src="${videoUrl}" type="video/mp4">
                 您的瀏覽器不支援影片播放。
               </video>
@@ -324,6 +333,13 @@ document.addEventListener('DOMContentLoaded', () => {
             videoFrame.style.background = 'transparent';
             videoFrame.style.border = 'none';
             videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
+
+            // Apply current playback speed
+            const speedSelector = document.getElementById('previewSpeed');
+            const previewVideo = document.getElementById('previewVideo');
+            if (speedSelector && previewVideo) {
+                previewVideo.playbackRate = parseFloat(speedSelector.value);
+            }
 
             // 更新下載連結
             const downloadBtn = document.querySelector('a[href*="/static/jobs/"][class*="btn-dark"], a[href="#"][class*="btn-dark"]');
@@ -390,5 +406,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const csvBodyInner = document.getElementById('csvBody');
   if (csvBodyInner && csvBodyInner.innerHTML.trim() === '') {
     csvBodyInner.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">請先上傳影片進行分析</td></tr>';
+  }
+
+  // Preview speed control
+  const previewSpeed = document.getElementById('previewSpeed');
+  if (previewSpeed) {
+    previewSpeed.addEventListener('change', () => {
+      const previewVideo = document.getElementById('previewVideo');
+      if (previewVideo) {
+        previewVideo.playbackRate = parseFloat(previewSpeed.value);
+      }
+    });
   }
 });

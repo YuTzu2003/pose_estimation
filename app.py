@@ -16,8 +16,24 @@ from modules.pipeline.pose_angle_track import run_pose_analysis
 from modules.pipeline.peak_smooth import peak_smooth
 from modules.pipeline.step_metrics import run_step
 from modules.pipeline.video_compat import make_ios_playable_mp4
-
 import threading
+
+class CustomFormatter(logging.Formatter):
+    def format(self, record):
+        record.asctime = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        return f"{record.asctime} | {record.levelname} | {record.getMessage()}"
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(CustomFormatter())
+root = logging.getLogger()
+if root.hasHandlers():
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.handlers = [handler]
+werkzeug_logger.propagate = False
 
 app = Flask(__name__)
 # Global dictionary to store progress

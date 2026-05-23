@@ -169,6 +169,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 video.appendChild(source);
                 video.load();
                 
+                // Apply current playback speed
+                const speedSelector = document.getElementById('videoSpeed');
+                if (speedSelector) {
+                    video.playbackRate = parseFloat(speedSelector.value);
+                }
+                
                 document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
                 
                 recordsSection.classList.add('d-none');
@@ -355,4 +361,13 @@ document.addEventListener('DOMContentLoaded', () => {
         );
         renderRecords(filtered);
     };
+
+    // Playback speed control
+    const videoSpeed = document.getElementById('videoSpeed');
+    const detailVideo = document.getElementById('detailVideo');
+    if (videoSpeed && detailVideo) {
+        videoSpeed.addEventListener('change', () => {
+            detailVideo.playbackRate = parseFloat(videoSpeed.value);
+        });
+    }
 });
