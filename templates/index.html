@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}步頻分析{% endblock %}
+{% block title %}AI步頻與動作數據分析{% endblock %}
 
 {% block content %}
   <!-- ===== HERO ===== -->
@@ -46,7 +46,7 @@
               <a class="tile d-block text-decoration-none text-reset" href="{{ url_for('compare') }}">
                 <span class="arrow">→</span>
                 <div class="tile-num">[04]</div>
-                <h4 class="fs-5">交叉比對</h4>
+                <h4 class="fs-5">交叉比較</h4>
                 <p class="small text-muted">選擇兩次紀錄，以時序曲線視覺化呈現差異。</p>
               </a>
             </div>
@@ -124,27 +124,38 @@
         </div>
 
         <div class="col-lg-5">
-          <label class="form-label">分析項目 / MODULES</label>
+          <label class="form-label d-flex align-items-center">
+            分析項目 / MODULES
+            <button type="button" class="btn btn-link p-0 ms-2 text-muted" 
+                    data-bs-toggle="popover" 
+                    data-bs-placement="top"
+                    data-bs-trigger="focus" 
+                    title="分析操作步驟" 
+                    data-bs-html="true"
+                    data-bs-content="<div class='small'><div class='mb-1'>1. 上傳並點擊偵測</div><div class='mb-1'>2. 查看偵測區間</div><div class='mb-1'>3. 勾選分析模組</div><div>4. 點擊確認執行</div></div>">
+              <i class="bi bi-question-circle" style="font-size: 0.9rem;"></i>
+            </button>
+          </label>
           <div class="row g-2">
             <div class="col-12">
               <label class="check-card is-checked" style="cursor: default; opacity: 0.8;">
                 <input type="checkbox" class="form-check-input" name="m" value="angle" checked onclick="return false;" />
                 <div class="ck-num">M-01</div>
                 <div class="ck-title">關節角度 Joint Angle <span class="badge bg-dark ms-1" style="font-size: 0.6rem; font-weight: normal;">必選</span></div>
-                <div class="ck-desc">計算膝、髖、踝、肘、肩在每幀的角度。</div>
+                <div class="ck-desc">計算身體關節在每幀的角度。</div>
               </label>
             </div>
             <div class="col-12">
-              <label class="check-card is-checked">
-                <input type="checkbox" class="form-check-input" name="m" value="track" checked />
+              <label class="check-card">
+                <input type="checkbox" class="form-check-input" name="m" value="track" />
                 <div class="ck-num">M-02</div>
                 <div class="ck-title">點位追蹤 Keypoint Track</div>
                 <div class="ck-desc">追蹤髖、膝關節的運動軌跡。</div>
               </label>
             </div>
             <div class="col-12">
-              <label class="check-card is-checked">
-                <input type="checkbox" class="form-check-input" name="m" value="gait" checked />
+              <label class="check-card">
+                <input type="checkbox" class="form-check-input" name="m" value="gait" />
                 <div class="ck-num">M-03</div>
                 <div class="ck-title">步幅與速度 Stride &amp; Speed</div>
                 <div class="ck-desc">偵測腳跟觸地週期，計算步幅、步頻與瞬時速度。</div>
@@ -157,7 +168,7 @@
             <div class="alert alert-light border d-flex flex-column gap-2" style="background: #fdfdfd;">
               <div class="d-flex align-items-center gap-2 mb-1">
                 <span class="badge bg-success dot-pulse"></span>
-                <span class="small fw-bold">人體偵測完成 / DETECTION COMPLETE</span>
+                <span class="small fw-bold">偵測完成出現人的區間 / DETECTION COMPLETE</span>
               </div>
               <div id="intervalList" class="mono small text-muted">
                 <!-- Intervals will be injected here -->
@@ -167,8 +178,8 @@
           </div>
 
           <div class="d-grid gap-2 mt-4" id="uploadBtnContainer">
-            <button type="submit" class="btn btn-dark" id="startBtn">上傳並偵測人體 / UPLOAD & DETECT</button>
-            <button type="reset" class="btn btn-outline-dark">清除</button>
+          <button type="submit" class="btn btn-dark" id="startBtn">上傳並偵測人體 / UPLOAD & DETECT</button>
+          <button type="button" class="btn btn-outline-dark" onclick="window.location.reload()">清除</button>
           </div>
 
           <!-- Progress Bar Section -->

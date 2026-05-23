@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{% block title %}步頻分析{% endblock %}</title>
+  <title>{% block title %}AI步頻與動作數據分析{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -17,18 +17,16 @@
   <nav class="app-nav">
     <div class="container-xl">
       <a class="brand" href="{{ url_for('index') }}">
-        <span class="brand-mark">R</span>步頻分析
+        <span class="brand-mark">R</span>AI步頻與動作數據分析
       </a>
       <div class="app-nav-links">
         {# "首頁" link removed per user request, using the brand icon instead #}
         <a href="{{ url_for('player_page') }}" class="{% if request.endpoint == 'player_page' %}active{% endif %}">選手建檔</a>
         <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">選手紀錄</a>
-        <a href="{{ url_for('compare') }}" class="{% if request.endpoint == 'compare' %}active{% endif %}">交叉比對</a>
+        <a href="{{ url_for('compare') }}" class="{% if request.endpoint == 'compare' %}active{% endif %}">交叉比較</a>
       </div>
       <div class="app-nav-cta d-flex gap-2">
-        <a href="{{ url_for('download_tool') }}" class="btn btn-outline-dark btn-sm">
-          下載切幀小工具
-        </a>
+        <a href="{{ url_for('download_tool') }}" class="btn btn-outline-dark btn-sm">下載切幀小工具</a>
       </div>
     </div>
   </nav>

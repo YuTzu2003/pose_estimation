@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}交叉比對{% endblock %}
+{% block title %}交叉比較 · AI步頻與動作數據分析{% endblock %}
 
 {% block content %}
   <main class="container-xl">
     <header class="page-head">
-      <h1 class="page-title">交叉比對分析</h1>
+      <h1 class="page-title">交叉比較分析</h1>
       <p class="page-sub">選擇同一位選手的兩次分析紀錄，並指定欲比對的關節部位。系統將以時序曲線視覺化呈現差異，協助教練評估訓練成效。</p>
     </header>
 
@@ -71,7 +71,7 @@
       <div class="mt-4 tile" style="padding:1.5rem">
         <div class="row align-items-end g-3">
           <div class="col-md-4">
-            <label class="form-label">比對類型 / TYPE</label>
+            <label class="form-label">比較類型 / TYPE</label>
             <select id="compareType" class="form-select">
                 <option value="skeleton">骨幹角度 (Skeleton Angles)</option>
                 <option value="imu">IMU 運動數據 (IMU Data)</option>
@@ -96,7 +96,7 @@
             </select>
           </div>
           <div class="col-md-4">
-            <button class="btn btn-dark w-100" id="runCompare">執行比對 / RUN COMPARE</button>
+            <button class="btn btn-dark w-100" id="runCompare">開始比較 / RUN COMPARE</button>
           </div>
         </div>
       </div>
@@ -106,7 +106,7 @@
     <section class="section" id="cmpResult" hidden>
       <div class="section-head">
         <span class="num-tag">02 / 02</span>
-        <h3>比對分析結果</h3>
+        <h3>比較分析結果</h3>
       </div>
 
       <div class="row g-4">
@@ -135,11 +135,10 @@
         <div class="col-12" id="mergedTile">
           <div class="tile bg-dark text-white">
             <div class="tile-num" style="color:rgba(255,255,255,0.5)">[MERGED VIEW]</div>
-            <h5 class="mb-3">數據合併比對圖</h5>
+            <h5 class="mb-3">分析比較</h5>
             <div class="bg-white p-3 border rounded">
               <img id="chartImgMerged" src="" class="img-fluid w-100" alt="Merged Chart">
             </div>
-            <p class="mt-3 small text-white-50">合併視圖將基準與對照數據重疊呈現，協助直觀判斷差異趨勢。</p>
           </div>
         </div>
       </div>
