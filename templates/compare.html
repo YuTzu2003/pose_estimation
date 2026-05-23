@@ -75,7 +75,6 @@
             <select id="compareType" class="form-select">
                 <option value="skeleton">骨幹角度 (Skeleton Angles)</option>
                 <option value="imu">IMU 運動數據 (IMU Data)</option>
-                <option value="merged">合併比對 (Merged View)</option>
             </select>
           </div>
           <div class="col-md-4" id="jointPickerCol">
@@ -103,40 +102,45 @@
       </div>
     </section>
 
+    <!-- ===== COMPARE RESULT ===== -->
     <section class="section" id="cmpResult" hidden>
       <div class="section-head">
-        <span class="num-tag">RESULT</span>
-        <h3>比對結果</h3>
-        <span class="right" id="cmpMeta"></span>
+        <span class="num-tag">02 / 02</span>
+        <h3>比對分析結果</h3>
       </div>
 
-      <div class="row g-3" id="diffStats"><!-- filled by JS --></div>
-
-      <div class="tile mt-3" style="padding:1.25rem">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <div class="tile-num">[CHART] · 關節角度時序</div>
-          <span class="mono small text-muted">A vs B (deg / time)</span>
+      <div class="row g-4">
+        <!-- Individual Charts -->
+        <div class="col-lg-6">
+          <div class="tile">
+            <div class="tile-num">[CHART A]</div>
+            <h5 class="mb-3">基準紀錄數據圖</h5>
+            <div class="bg-white p-2 border rounded">
+              <img id="chartImgA" src="" class="img-fluid w-100" alt="Chart A">
+            </div>
+          </div>
         </div>
-        <canvas id="cmpChart" height="120"></canvas>
-      </div>
 
-      <div class="tile mt-3" style="padding:1.25rem">
-        <div class="tile-num">[TABLE] · 數值摘要</div>
-        <div class="table-responsive mt-2">
-          <table class="table align-middle">
-            <thead>
-              <tr>
-                <th>JOINT</th>
-                <th>A · MEAN (°)</th>
-                <th>B · MEAN (°)</th>
-                <th>Δ MEAN</th>
-                <th>A · MAX</th>
-                <th>B · MAX</th>
-                <th>Δ MAX</th>
-              </tr>
-            </thead>
-            <tbody id="diffTable"></tbody>
-          </table>
+        <div class="col-lg-6">
+          <div class="tile">
+            <div class="tile-num">[CHART B]</div>
+            <h5 class="mb-3">對照紀錄數據圖</h5>
+            <div class="bg-white p-2 border rounded">
+              <img id="chartImgB" src="" class="img-fluid w-100" alt="Chart B">
+            </div>
+          </div>
+        </div>
+
+        <!-- Merged Chart - Restored -->
+        <div class="col-12" id="mergedTile">
+          <div class="tile bg-dark text-white">
+            <div class="tile-num" style="color:rgba(255,255,255,0.5)">[MERGED VIEW]</div>
+            <h5 class="mb-3">數據合併比對圖</h5>
+            <div class="bg-white p-3 border rounded">
+              <img id="chartImgMerged" src="" class="img-fluid w-100" alt="Merged Chart">
+            </div>
+            <p class="mt-3 small text-white-50">合併視圖將基準與對照數據重疊呈現，協助直觀判斷差異趨勢。</p>
+          </div>
         </div>
       </div>
     </section>
@@ -144,6 +148,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='compare.js') }}"></script>
 {% endblock %}

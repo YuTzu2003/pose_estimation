@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename, safe_join
 from modules.db import get_conn, release_conn
 from service.player import player_bp
 from service.record import record_bp
+from service.compare import compare_bp
 from service.line_notify import send_save_notification
 from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis
@@ -50,6 +51,7 @@ def get_progress(job_id):
 # ... (rest of imports)
 app.register_blueprint(player_bp)
 app.register_blueprint(record_bp)
+app.register_blueprint(compare_bp)
 JOBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'jobs')
 if not os.path.exists(JOBS_DIR):
     os.makedirs(JOBS_DIR)
@@ -135,7 +137,17 @@ def media(filename):
 
 @app.route('/compare.html')
 def compare():
-    return render_template('compare.html')
+    conn = get_conn()
+    players = []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT Player_id, Name FROM Player ORDER BY Name")
+        players = cursor.fetchall()
+    except Exception as e:
+        print(f"Error fetching players for compare: {e}")
+    finally:
+        release_conn(conn)
+    return render_template('compare.html', players=players)
 
 @app.route('/upload', methods=['POST'])
 def upload():
