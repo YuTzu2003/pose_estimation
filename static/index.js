@@ -86,15 +86,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const progressStatus = document.getElementById('progressStatus');
       const progressPercent = document.getElementById('progressPercent');
       const startBtn = document.getElementById('startBtn');
+      const detectionResults = document.getElementById('detectionResults');
+      const intervalList = document.getElementById('intervalList');
+      const uploadBtnContainer = document.getElementById('uploadBtnContainer');
 
       try {
-        startBtn.textContent = '處理中...';
+        startBtn.textContent = '上傳與偵測中...';
         startBtn.disabled = true;
         
         progressContainer.classList.remove('d-none');
         progressBar.style.width = '0%';
         progressPercent.textContent = '0%';
-        progressStatus.textContent = '正在上傳檔案...';
+        progressStatus.textContent = '正在上傳與偵測...';
 
         const pollInterval = setInterval(async () => {
           try {
@@ -120,59 +123,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response.ok) {
           progressBar.style.width = '100%';
           progressPercent.textContent = '100%';
-          progressStatus.textContent = '處理完成！';
+          progressStatus.textContent = '偵測完成！';
+          
           currentAnalysis.record_id = result.record_id;
-          currentAnalysis.peak_data = result.peak_data;
-          currentAnalysis.scale_info = {
-            reference: document.getElementById('scale_reference').value,
-            pixels: document.getElementById('scale_pixels').value
-          };
           currentAnalysis.person_records = result.person_records;
           currentAnalysis.fps = result.fps || 30;
 
-          // 更新預覽畫面
-          const videoFrame = document.querySelector('.video-frame');
-          if (videoFrame) {
-            videoFrame.innerHTML = '';
-            if (result.video_url) {
-                const videoUrl = result.video_url + '?t=' + new Date().getTime();
-                videoFrame.innerHTML += `
-                  <div class="mb-3">
-                    <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
-                        <source src="${videoUrl}" type="video/mp4">
-                    </video>
-                  </div>
-                `;
-                const speedContainer = document.getElementById('previewSpeedContainer');
-                if (speedContainer) speedContainer.classList.remove('d-none');
-            }
-            if (result.imu_plot_url || result.record_id) {
-                const imuUrl = result.imu_plot_url || `/api/imu_plot/${result.record_id}?type=acc_res`;
-                videoFrame.innerHTML += `
-                  <div class="mt-4 text-center">
-                    <h5 class="small text-muted mb-3 mono">IMU ANALYSIS PREVIEW (RESULTANT ACC)</h5>
-                    <div class="bg-white p-2 rounded border">
-                        <img src="${imuUrl}" class="img-fluid" alt="IMU Plot">
-                    </div>
-                  </div>
-                `;
-            }
-            videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
-            videoFrame.style.height = 'auto';
-            videoFrame.style.minHeight = '0';
-            videoFrame.style.background = 'transparent';
-            videoFrame.style.border = 'none';
-          }
-
-          if (result.peak_data && result.peak_data.length > 0) {
-            populatePeakTable(result.peak_data);
+          // 顯示偵測區間
+          detectionResults.classList.remove('d-none');
+          uploadBtnContainer.classList.add('d-none');
+          
+          if (result.person_records && result.person_records.length > 0) {
+            intervalList.innerHTML = result.person_records.map((r, i) => 
+                `<div>#${i+1}: Frame ${r[0]} - ${r[1]} (${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s)</div>`
+            ).join('');
           } else {
-            document.getElementById('csvBody').innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">此項目無步頻數據</td></tr>';
+            intervalList.innerHTML = '<div class="text-danger">未偵測到人體區間，您可以嘗試繼續分析或重新上傳。</div>';
           }
 
-          const resultSec = document.getElementById('result');
-          if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
-          setTimeout(() => alert('處理完成！'), 500);
+          // 滾動到偵測結果
+          detectionResults.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
         } else {
           alert('處理失敗: ' + result.error);
         }
@@ -180,15 +151,204 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error(err);
         alert('發生錯誤，請稍後再試。');
       } finally {
-        startBtn.textContent = '開始分析 / START ANALYSIS';
+        startBtn.textContent = '上傳並偵測人體 / UPLOAD & DETECT';
         startBtn.disabled = false;
       }
     });
+
+    const confirmAnalyzeBtn = document.getElementById('confirmAnalyzeBtn');
+    if (confirmAnalyzeBtn) {
+        confirmAnalyzeBtn.addEventListener('click', async () => {
+            const jobId = 'job_analyze_' + Date.now();
+            const progressBar = document.getElementById('progressBar');
+            const progressStatus = document.getElementById('progressStatus');
+            const progressPercent = document.getElementById('progressPercent');
+            
+            confirmAnalyzeBtn.disabled = true;
+            confirmAnalyzeBtn.textContent = '執行分析中...';
+            
+            progressBar.style.width = '0%';
+            progressPercent.textContent = '0%';
+            progressStatus.textContent = '正在啟動分析程序...';
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/progress/${jobId}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        progressBar.style.width = data.progress + '%';
+                        progressPercent.textContent = Math.round(data.progress) + '%';
+                        progressStatus.textContent = data.status || '處理中...';
+                        if (data.progress >= 100) clearInterval(pollInterval);
+                    }
+                } catch (err) {}
+            }, 1000);
+
+            const selectedModules = Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value);
+            
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        record_id: currentAnalysis.record_id,
+                        job_id: jobId,
+                        modules: selectedModules,
+                        person_records: currentAnalysis.person_records,
+                        scale_info: {
+                            reference: document.getElementById('scale_reference').value,
+                            pixels: document.getElementById('scale_pixels').value
+                        },
+                        athlete: document.getElementById('athlete').value,
+                        session: document.getElementById('session').value,
+                        note: document.getElementById('note').value
+                    })
+                });
+
+                clearInterval(pollInterval);
+                
+                let result;
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    result = await response.json();
+                } else {
+                    const text = await response.text();
+                    console.error("Non-JSON response:", text);
+                    throw new Error("伺服器回傳了非 JSON 格式的錯誤訊息，請檢查後端日誌。");
+                }
+
+                if (response.ok) {
+                    progressBar.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    progressStatus.textContent = '分析完成！';
+                    
+                    console.log("Analysis Result:", result);
+                    currentAnalysis.peak_data = result.peak_data;
+                    currentAnalysis.scale_info = {
+                        reference: document.getElementById('scale_reference').value,
+                        pixels: document.getElementById('scale_pixels').value
+                    };
+
+                    // 更新預覽畫面
+                    const videoFrame = document.querySelector('.video-frame');
+                    const imuModalBtn = document.getElementById('imuModalBtn');
+                    
+                    if (videoFrame) {
+                        videoFrame.innerHTML = '';
+                        if (result.video_url) {
+                            const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
+                            videoFrame.innerHTML += `
+                              <div class="mb-3 w-100">
+                                <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
+                                    <source src="${videoUrl}" type="video/mp4">
+                                </video>
+                              </div>
+                            `;
+                            const speedContainer = document.getElementById('previewSpeedContainer');
+                            if (speedContainer) speedContainer.classList.remove('d-none');
+                        }
+                        
+                        // Show IMU Modal Button if record has ID
+                        if (result.record_id && imuModalBtn) {
+                            imuModalBtn.classList.remove('d-none');
+                        }
+
+                        videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
+                        videoFrame.style.height = 'auto';
+                        videoFrame.style.minHeight = '0';
+                        videoFrame.style.background = 'transparent';
+                        videoFrame.style.border = 'none';
+                    }
+
+                    if (result.peak_data && result.peak_data.length > 0) {
+                        console.log("Populating peak table with:", result.peak_data);
+                        populatePeakTable(result.peak_data);
+                    } else {
+                        console.warn("No peak data received from backend.");
+                        document.getElementById('csvBody').innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">此項目無步頻數據</td></tr>';
+                    }
+
+                    const resultSec = document.getElementById('result');
+                    if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
+                    setTimeout(() => alert('分析完成！'), 500);
+                    
+                    // 重置 UI 狀態
+                    document.getElementById('detectionResults').classList.add('d-none');
+                    document.getElementById('uploadBtnContainer').classList.remove('d-none');
+
+                } else {
+                    alert('分析失敗: ' + (result.error || "未知錯誤"));
+                }
+            } catch (err) {
+                console.error(err);
+                alert('發生錯誤: ' + err.message);
+            } finally {
+                confirmAnalyzeBtn.disabled = false;
+                confirmAnalyzeBtn.textContent = '確認並執行分析 / CONFIRM & ANALYZE';
+                clearInterval(pollInterval);
+            }
+        });
+    }
+
+    // IMU Modal Logic
+    const imuModalBtn = document.getElementById('imuModalBtn');
+    const imuModal = document.getElementById('imuModal');
+    const imuModalPlotImg = document.getElementById('imuModalPlotImg');
+    const imuPlotContainer = document.getElementById('imuPlotContainer');
+    const imuPlotLoading = document.getElementById('imuPlotLoading');
+    const imuNoData = document.getElementById('imuNoData');
+
+    if (imuModalBtn && imuModal) {
+        const bsModal = new bootstrap.Modal(imuModal);
+        
+        imuModalBtn.addEventListener('click', () => {
+            bsModal.show();
+            loadImuChart();
+        });
+
+        // Type Change
+        document.querySelectorAll('input[name="imuType"]').forEach(radio => {
+            radio.addEventListener('change', loadImuChart);
+        });
+    }
+
+    async function loadImuChart() {
+        if (!currentAnalysis.record_id) return;
+        
+        const type = document.querySelector('input[name="imuType"]:checked').value;
+        const url = `/api/imu_plot/${currentAnalysis.record_id}?type=${type}&t=${new Date().getTime()}`;
+        
+        imuPlotContainer.classList.add('d-none');
+        imuNoData.classList.add('d-none');
+        imuPlotLoading.classList.remove('d-none');
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data.plot_url) {
+                imuModalPlotImg.src = data.plot_url;
+                imuPlotContainer.classList.remove('d-none');
+            } else {
+                imuNoData.classList.remove('d-none');
+            }
+        } catch (err) {
+            console.error("IMU Plot Load Error:", err);
+            imuNoData.classList.remove('d-none');
+        } finally {
+            imuPlotLoading.classList.add('d-none');
+        }
+    }
   }
 
   function populatePeakTable(peakData) {
     const csvBody = document.getElementById('csvBody');
-    if (!csvBody) return;
+    if (!csvBody) {
+        console.error("csvBody element not found!");
+        return;
+    }
+
+    console.log("Starting populatePeakTable with", peakData.length, "rows");
 
     if (!peakData || peakData.length === 0) {
       csvBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">目前無步頻數據</td></tr>';
@@ -196,17 +356,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let rowsHTML = '';
-    peakData.forEach((row) => {
-      if (row.Frame_Right !== null) {
+    peakData.forEach((row, idx) => {
+      // 處理右腳數據 (Frame_Right, X_Right, Y_Right)
+      if (row.Frame_Right !== undefined && row.Frame_Right !== null && row.Frame_Right !== "") {
         rowsHTML += createRowHTML(row.Frame_Right, row.X_Right, 'Right', row.Y_Right);
       }
-      if (row.Frame_Left !== null) {
+      // 處理左腳數據 (Frame_Left, X_Left, Y_Left)
+      if (row.Frame_Left !== undefined && row.Frame_Left !== null && row.Frame_Left !== "") {
         rowsHTML += createRowHTML(row.Frame_Left, row.X_Left, 'Left', row.Y_Left);
       }
     });
-    
-    csvBody.innerHTML = rowsHTML;
-    sortAndReindexTable();
+
+    console.log("Generated rowsHTML length:", rowsHTML.length);
+
+    if (rowsHTML === '') {
+        console.warn("No valid peaks found in peakData despite having rows.");
+        csvBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">數據格式不符或無有效步點</td></tr>';
+    } else {
+        csvBody.innerHTML = rowsHTML;
+        sortAndReindexTable();
+        console.log("Peak table populated and sorted.");
+    }
   }
 
   function createRowHTML(frame, x, foot, y) {
@@ -350,12 +520,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (downloadBtn) {
               downloadBtn.href = videoUrl;
               downloadBtn.download = result.video_url.split('/').pop().split('?')[0];
-            }
-            // 同時更新 Gait CSV 下載連結 (加上 timestamp 避免快取)
-            const csvBtns = document.querySelectorAll('a[class*="btn-outline-dark"][download*="_peaks.csv"]');
-            if (csvBtns.length > 0) {
-              const currentHref = csvBtns[0].href.split('?')[0];
-              csvBtns[0].href = `${currentHref}?t=${new Date().getTime()}`;
             }
           }
           alert('影片已重新生成！');

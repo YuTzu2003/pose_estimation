@@ -171,12 +171,8 @@ def upload():
 
     # Initialize paths
     orig_video_db_path = None
-    result_video_path = None
-    pose_csv_path = None
     imu_csv_db_path = None
-    imu_plot_db_path = None
     person_records = []
-    peak_data_list = []
     fps = 30
 
     # 1. Process Video if exists
@@ -195,56 +191,9 @@ def upload():
 
             update_progress(5, "正在執行人體偵測...")
             person_records = get_person_records(abs_video_path)
-            if person_records:
-                selected_modules = request.form.getlist('m')
-                enable_track = 'track' in selected_modules
-                
-                update_progress(10, "開始骨幹分析...")
-                def pose_progress(p, s):
-                    update_progress(10 + p * 0.5, s)
-
-                res_video, res_csv = run_pose_analysis(
-                    abs_video_path, project_dir, record_id, 
-                    person_records, enable_track=enable_track,
-                    progress_callback=pose_progress
-                )
-                result_video_path = f"jobs/{record_id}/{res_video}"
-                pose_csv_path = f"jobs/{record_id}/{res_csv}"
-                
-                if 'gait' in selected_modules:
-                    update_progress(65, "正在計算步頻指標...")
-                    pose_csv_abs = os.path.join(project_dir, res_csv)
-                    peaks_csv_name = f"{record_id}_peaks.csv"
-                    peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
-                    
-                    if peak_smooth(pose_csv_abs, peaks_csv_abs):
-                        try:
-                            import pandas as pd
-                            peak_df = pd.read_csv(peaks_csv_abs)
-                            peak_data_list = peak_df.where(pd.notnull(peak_df), None).to_dict(orient='records')
-                        except: pass
-
-                        gait_video_name = f"{record_id}_gait.mp4"
-                        gait_video_abs = os.path.join(project_dir, gait_video_name)
-                        ratio = float(scale_reference) / float(scale_pixels)
-                        input_video_for_gait = os.path.join(project_dir, res_video)
-                        
-                        update_progress(70, "開始生成步頻影片...")
-                        def step_progress(p, s):
-                            update_progress(70 + p * 0.25, s)
-
-                        final_gait_video = run_step(
-                            input_video_for_gait, peaks_csv_abs, gait_video_abs, 
-                            ratio=ratio, person_records=person_records,
-                            progress_callback=step_progress
-                        )
-                        if final_gait_video:
-                            result_video_path = f"jobs/{record_id}/{final_gait_video}"
-            else:
-                update_progress(60, "未偵測到人體，跳過影片分析")
         except Exception as e:
-            print(f"Video analysis error: {e}")
-            update_progress(60, f"影片分析失敗: {str(e)}")
+            print(f"Video detection error: {e}")
+            update_progress(60, f"影片偵測失敗: {str(e)}")
 
     # 2. Process IMU if exists
     if imu_file and imu_file.filename != '':
@@ -253,18 +202,157 @@ def upload():
         abs_imu_path = os.path.join(project_dir, imu_filename)
         imu_file.save(abs_imu_path)
         
-        update_progress(96, "正在分析 IMU 數據...")
+        update_progress(10, "正在預處理 IMU 數據...")
         std_csv_file, err = process_imu_data(abs_imu_path, project_dir, record_id)
         if std_csv_file:
             imu_csv_db_path = f"jobs/{record_id}/{std_csv_file}"
-            # We'll use this path as the base for dynamic plotting
         else:
             print(f"IMU Error: {err}")
+    
+    update_progress(100, "上傳與偵測完成！")
+    
+    return jsonify({
+        'record_id': record_id, 
+        'message': '上傳與偵測完成！',
+        'person_records': person_records,
+        'fps': fps,
+        'orig_video_path': orig_video_db_path,
+        'imu_csv_path': imu_csv_db_path
+    })
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    data = request.json
+    record_id = data.get('record_id')
+    job_id = data.get('job_id')
+    selected_modules = data.get('modules', [])
+    person_records = data.get('person_records', [])
+    scale_info = data.get('scale_info', {})
+    athlete = data.get('athlete')
+    session_name = data.get('session')
+    note = data.get('note')
+    
+    if not record_id:
+        return jsonify({'error': '缺少紀錄 ID'}), 400
+
+    def update_progress(percent, status):
+        if job_id:
+            with progress_lock:
+                progress_data[job_id] = {"progress": percent, "status": status}
+
+    project_dir = os.path.join(JOBS_DIR, record_id)
+    # Find original video path
+    orig_video_filename = None
+    video_extensions = ['.mp4', '.avi', '.mov', '.webm', '.mkv']
+    if os.path.exists(project_dir):
+        for f in os.listdir(project_dir):
+            if f.startswith(record_id):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in video_extensions and not any(x in f for x in ['_result', '_gait']):
+                    orig_video_filename = f
+                    break
+    
+    if not orig_video_filename:
+        # Fallback: check if we have any file starting with record_id that's not a result/csv/imu
+        if os.path.exists(project_dir):
+            for f in os.listdir(project_dir):
+                if f.startswith(record_id) and not any(x in f for x in ['_result', '_gait', '_peaks', '_imu', '.csv', '.json']):
+                    orig_video_filename = f
+                    break
+    
+    if not orig_video_filename:
+        return jsonify({'error': '找不到原始影片檔案'}), 404
+        
+    abs_video_path = os.path.join(project_dir, orig_video_filename)
+    orig_video_db_path = f"jobs/{record_id}/{orig_video_filename}"
+    
+    result_video_path = None
+    pose_csv_path = None
+    peak_data_list = []
+
+    try:
+        if person_records:
+            enable_track = 'track' in selected_modules
+            
+            update_progress(10, "開始骨幹分析...")
+            def pose_progress(p, s):
+                update_progress(10 + p * 0.5, s)
+
+            res_video, res_csv = run_pose_analysis(
+                abs_video_path, project_dir, record_id, 
+                person_records, enable_track=enable_track,
+                progress_callback=pose_progress
+            )
+            result_video_path = f"jobs/{record_id}/{res_video}"
+            pose_csv_path = f"jobs/{record_id}/{res_csv}"
+            
+            # Always attempt peak smoothing to provide data for the correction table
+            pose_csv_abs = os.path.join(project_dir, res_csv)
+            peaks_csv_name = f"{record_id}_peaks.csv"
+            peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
+            
+            print(f"[DEBUG] Attempting peak_smooth for {record_id}...")
+            if peak_smooth(pose_csv_abs, peaks_csv_abs):
+                print(f"[DEBUG] peak_smooth successful. Reading {peaks_csv_abs}...")
+                try:
+                    import pandas as pd
+                    import numpy as np
+                    peak_df = pd.read_csv(peaks_csv_abs)
+                    # Replace NaN/Inf with None for JSON serialization
+                    peak_df = peak_df.replace([np.inf, -np.inf], np.nan)
+                    peak_data_list = peak_df.where(pd.notnull(peak_df), None).to_dict(orient='records')
+                    print(f"[DEBUG] Successfully loaded {len(peak_data_list)} peaks for {record_id}")
+                except Exception as e:
+                    print(f"[DEBUG] Peak data processing error for {record_id}: {e}")
+            else:
+                print(f"[DEBUG] Peak smoothing failed for {record_id}")
+
+            if 'gait' in selected_modules:
+                update_progress(70, "開始生成步頻影片...")
+                gait_video_name = f"{record_id}_gait.mp4"
+                gait_video_abs = os.path.join(project_dir, gait_video_name)
+                
+                try:
+                    ref_dist = float(scale_info.get('reference', 1))
+                    px_dist = float(scale_info.get('pixels', 1))
+                    ratio = ref_dist / px_dist if px_dist != 0 else 1.0
+                except:
+                    ratio = 1.0
+
+                input_video_for_gait = os.path.join(project_dir, res_video)
+                
+                def step_progress(p, s):
+                    update_progress(70 + p * 0.25, s)
+
+                if os.path.exists(peaks_csv_abs):
+                    final_gait_video = run_step(
+                        input_video_for_gait, peaks_csv_abs, gait_video_abs, 
+                        ratio=ratio, person_records=person_records,
+                        progress_callback=step_progress
+                    )
+                    if final_gait_video:
+                        result_video_path = f"jobs/{record_id}/{final_gait_video}"
+        else:
+            update_progress(60, "未偵測到人體，跳過影片分析")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"Analysis error: {e}")
+        update_progress(60, f"分析失敗: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+    # IMU path lookup
+    imu_csv_db_path = None
+    for f in os.listdir(project_dir):
+        if f.endswith('_imu_std.csv'):
+            imu_csv_db_path = f"jobs/{record_id}/{f}"
+            break
 
     # 3. Database Save
-    full_note = note
-    if scale_reference:
-        full_note += f"\n[比例尺: {scale_reference}m = {scale_pixels}px]"
+    full_note = note or ""
+    if scale_info.get('reference'):
+        full_note += f"\n[比例尺: {scale_info['reference']}m = {scale_info['pixels']}px]"
     
     conn = get_conn()
     try:
@@ -277,7 +365,8 @@ def upload():
         conn.commit()
     except Exception as e:
         conn.rollback()
-        return jsonify({'error': f'資料庫儲存失敗: {str(e)}'}), 500
+        print(f"Database error: {e}")
+        # Even if DB fails, we return the result so UI can show it
     finally:
         release_conn(conn)   
     
@@ -291,12 +380,12 @@ def upload():
         'record_id': record_id, 
         'message': '處理完成！',
         'video_url': video_url,
-        'imu_plot_url': f"/static/{imu_plot_db_path}" if imu_plot_db_path else None,
         'person_records': person_records,
         'peak_data': peak_data_list,
         'pose_csv': pose_csv_path,
-        'fps': fps
+        'peaks_csv': f"jobs/{record_id}/{record_id}_peaks.csv" if peak_data_list else None
     })
+
 
 @app.route('/api/append_data', methods=['POST'])
 def append_data():

@@ -152,8 +152,22 @@
             </div>
           </div>
 
-          <div class="d-grid gap-2 mt-4">
-            <button type="submit" class="btn btn-dark" id="startBtn">開始分析 / START ANALYSIS</button>
+          <!-- Detection Results Section -->
+          <div id="detectionResults" class="mt-4 d-none">
+            <div class="alert alert-light border d-flex flex-column gap-2" style="background: #fdfdfd;">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-success dot-pulse"></span>
+                <span class="small fw-bold">人體偵測完成 / DETECTION COMPLETE</span>
+              </div>
+              <div id="intervalList" class="mono small text-muted">
+                <!-- Intervals will be injected here -->
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary w-100 mt-2" id="confirmAnalyzeBtn">確認並執行分析 / CONFIRM & ANALYZE</button>
+          </div>
+
+          <div class="d-grid gap-2 mt-4" id="uploadBtnContainer">
+            <button type="submit" class="btn btn-dark" id="startBtn">上傳並偵測人體 / UPLOAD & DETECT</button>
             <button type="reset" class="btn btn-outline-dark">清除</button>
           </div>
 
@@ -180,9 +194,16 @@
 
       <div class="row">
         <div class="col-12">
-          <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small" style="min-height: 400px; background: #1a1a1a;">
-            ANALYZED VIDEO PREVIEW
+          <div id="videoContainer" class="position-relative">
+            <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small" style="min-height: 400px; background: #1a1a1a;">
+              ANALYZED VIDEO PREVIEW
+            </div>
+            <!-- Floating IMU Button -->
+            <button id="imuModalBtn" class="btn btn-sm btn-dark position-absolute d-none" style="top: 20px; right: 20px; z-index: 10; opacity: 0.8;">
+              <span class="me-1">📊</span> IMU 數據分析
+            </button>
           </div>
+          
           <div id="previewSpeedContainer" class="mt-3 d-flex align-items-center gap-3 d-none">
             <label class="small text-muted mono text-nowrap">PLAYBACK SPEED:</label>
             <select id="previewSpeed" class="form-select form-select-sm" style="width: 140px; font-size: 0.85rem;">
@@ -194,6 +215,46 @@
         </div>
       </div>
     </section>
+
+    <!-- IMU Analysis Modal -->
+    <div class="modal fade" id="imuModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+          <div class="modal-header bg-dark text-white border-0 py-3">
+            <h5 class="modal-title mono fs-6">IMU 數據視覺化 / IMU VISUALIZATION</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body p-4 bg-light">
+            <div class="d-flex justify-content-center gap-2 mb-4">
+              <div class="btn-group btn-group-sm" role="group">
+                <input type="radio" class="btn-check" name="imuType" id="typeAccRes" value="acc_res" checked>
+                <label class="btn btn-outline-dark" for="typeAccRes">合加速度 (Acc Res)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeAccXYZ" value="acc_xyz">
+                <label class="btn btn-outline-dark" for="typeAccXYZ">加速度 (Acc XYZ)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrXYZ" value="gyr_xyz">
+                <label class="btn btn-outline-dark" for="typeGyrXYZ">角速度 (Gyr XYZ)</label>
+              </div>
+            </div>
+            
+            <div id="imuPlotLoading" class="text-center py-5 d-none">
+                <div class="spinner-border spinner-border-sm text-dark" role="status"></div>
+                <div class="small text-muted mt-2 mono">LOADING CHART...</div>
+            </div>
+            
+            <div id="imuPlotContainer" class="bg-white p-3 rounded border shadow-sm">
+              <img src="" id="imuModalPlotImg" class="img-fluid w-100" alt="IMU Plot">
+            </div>
+            
+            <div id="imuNoData" class="text-center py-5 d-none">
+                <div class="text-muted fs-4 mb-2">🚫</div>
+                <div class="small text-muted mono">NO IMU DATA AVAILABLE FOR THIS RECORD</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== EDIT / CSV CORRECTION ===== -->
     <section class="section" id="edit">
