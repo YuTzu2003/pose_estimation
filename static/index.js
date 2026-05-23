@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
           
           if (result.person_records && result.person_records.length > 0) {
             intervalList.innerHTML = result.person_records.map((r, i) => 
-                `<div>#${i+1}: Frame ${r[0]} - ${r[1]} (${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s)</div>`
+                `<div>#${i+1}: ${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s</div>`
             ).join('');
           } else {
             intervalList.innerHTML = '<div class="text-danger">未偵測到人體區間，您可以嘗試繼續分析或重新上傳。</div>';
@@ -386,10 +386,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function createRowHTML(frame, x, foot, y) {
+    const time = (frame / currentAnalysis.fps).toFixed(2);
     return `
       <tr class="peak-row" data-foot="${foot}">
         <td class="text-muted row-idx"></td>
-        <td contenteditable="true" class="mono peak-frame">${frame}</td>
+        <td contenteditable="true" class="mono peak-time">${time}</td>
         <td>
           <select class="form-select form-select-sm peak-foot-select" onchange="updateFootBadge(this)">
             <option value="Right" ${foot === 'Right' ? 'selected' : ''}>Right</option>
@@ -432,9 +433,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rows.length === 0) return;
 
     rows.sort((a, b) => {
-      const frameA = parseInt(a.querySelector('.peak-frame').textContent) || 0;
-      const frameB = parseInt(b.querySelector('.peak-frame').textContent) || 0;
-      return frameA - frameB;
+      const timeA = parseFloat(a.querySelector('.peak-time').textContent) || 0;
+      const timeB = parseFloat(b.querySelector('.peak-time').textContent) || 0;
+      return timeA - timeB;
     });
 
     csvBody.innerHTML = '';
@@ -458,7 +459,8 @@ document.addEventListener('DOMContentLoaded', () => {
       let leftPeaks = [];
 
       rows.forEach(row => {
-        const frame = parseInt(row.querySelector('.peak-frame').textContent) || 0;
+        const time = parseFloat(row.querySelector('.peak-time').textContent) || 0;
+        const frame = Math.round(time * currentAnalysis.fps);
         const x = parseFloat(row.querySelector('.peak-x').textContent) || 0;
         const y = parseFloat(row.querySelector('.peak-y').textContent) || 0;
         const foot = row.getAttribute('data-foot');

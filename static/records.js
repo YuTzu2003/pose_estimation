@@ -100,7 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-1">
                         <div class="fw-semibold">${r.session}</div>
-                        <span class="badge bg-light text-dark border mono x-small">F: ${r.frame_start}-${r.frame_end}</span>
                     </div>
                     <div class="small text-muted">${r.note || '無備註'}</div>
                 </div>
@@ -160,22 +159,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('detailSession').textContent = record.session;
                 document.getElementById('detailDate').textContent = record.date;
                 document.getElementById('detailNote').textContent = record.note || '無備註';
-                document.getElementById('detailFrames').textContent = `FRAME ${record.frame_start} - ${record.frame_end}`;
-                
+
                 // Handle Video Visibility
                 const videoContainer = document.getElementById('videoContainer');
+                const videoDirectLink = document.getElementById('videoDirectLink');
                 const poseChartContainer = document.getElementById('poseChartContainer');
                 const appendVideoBtn = document.getElementById('appendVideoBtn');
-                
+
                 if (record.original_video || record.result_video) {
                     videoContainer.classList.remove('d-none');
                     poseChartContainer.classList.remove('d-none');
                     appendVideoBtn.classList.add('d-none');
-                    
+
                     const video = document.getElementById('detailVideo');
                     const videoPath = record.result_video || record.original_video;
                     video.innerHTML = '';
-                    
+
+                    if (videoDirectLink) {
+                        videoDirectLink.innerHTML = `<a href="/media/${videoPath}" target="_blank" class="text-decoration-none" download>點此另開視窗觀看或下載影片</a>`;
+                    }                    
                     // Add attributes for mobile/inline playback
                     video.setAttribute('playsinline', '');
                     video.setAttribute('webkit-playsinline', '');
