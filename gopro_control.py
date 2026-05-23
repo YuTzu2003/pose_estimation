@@ -230,6 +230,13 @@ class GoProVideoAutomationApp(QWidget):
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
             self.log("錄影已結束。")
             
+<<<<<<< HEAD
+=======
+            self.log("解鎖指令: 授權相機進入外部連線控制狀態...")
+            await self.client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+            await self.client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+            
+>>>>>>> db2503e38985a796e342306b99a64dc8236f119c
             self.log("發送指令: 喚醒 GoPro Wi-Fi 熱點廣播...")
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
 
