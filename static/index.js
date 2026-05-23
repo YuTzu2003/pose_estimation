@@ -2,6 +2,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const fileInput = document.getElementById('fileInput');
   const fileNameDisplay = document.getElementById('fileName');
   const fileDrop = document.getElementById('fileDrop');
+  const imuInput = document.getElementById('imuInput');
+  const imuFileNameDisplay = document.getElementById('imuFileName');
+  const imuDrop = document.getElementById('imuDrop');
   const uploadForm = document.getElementById('uploadForm');
 
   if (fileInput && fileNameDisplay) {
@@ -10,33 +13,48 @@ document.addEventListener('DOMContentLoaded', () => {
         fileNameDisplay.textContent = fileInput.files[0].name;
         fileNameDisplay.style.color = 'var(--fg)';
       } else {
-        fileNameDisplay.textContent = '未選取檔案';
+        fileNameDisplay.textContent = '未選取';
         fileNameDisplay.style.color = 'var(--muted)';
       }
     };
-
     fileInput.addEventListener('change', updateFileName);
-    updateFileName(); // Initial check
   }
 
-  if (fileDrop) {
-    fileDrop.addEventListener('dragover', (e) => {
+  if (imuInput && imuFileNameDisplay) {
+    const updateImuFileName = () => {
+      if (imuInput.files.length > 0) {
+        imuFileNameDisplay.textContent = imuInput.files[0].name;
+        imuFileNameDisplay.style.color = 'var(--fg)';
+      } else {
+        imuFileNameDisplay.textContent = '未選取';
+        imuFileNameDisplay.style.color = 'var(--muted)';
+      }
+    };
+    imuInput.addEventListener('change', updateImuFileName);
+  }
+
+  const setupDropzone = (dropzone, input, callback) => {
+    if (!dropzone) return;
+    dropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      fileDrop.style.borderColor = 'var(--fg)';
+      dropzone.style.borderColor = 'var(--fg)';
     });
-    fileDrop.addEventListener('dragleave', (e) => {
+    dropzone.addEventListener('dragleave', (e) => {
       e.preventDefault();
-      fileDrop.style.borderColor = 'var(--border)';
+      dropzone.style.borderColor = 'var(--border)';
     });
-    fileDrop.addEventListener('drop', (e) => {
+    dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
-      fileDrop.style.borderColor = 'var(--border)';
+      dropzone.style.borderColor = 'var(--border)';
       if (e.dataTransfer.files.length > 0) {
-        fileInput.files = e.dataTransfer.files;
-        fileInput.dispatchEvent(new Event('change'));
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change'));
       }
     });
-  }
+  };
+
+  setupDropzone(fileDrop, fileInput);
+  setupDropzone(imuDrop, imuInput);
 
   // 全域變數儲存當前分析資訊
   let currentAnalysis = {
@@ -51,14 +69,15 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      const file = fileInput.files[0];
-      if (!file) {
-        alert('請先選擇要上傳的影片檔案');
+      const hasVideo = fileInput.files.length > 0;
+      const hasImu = imuInput.files.length > 0;
+      
+      if (!hasVideo && !hasImu) {
+        alert('請先選擇影片檔案或 IMU 數據檔案');
         return;
       }
       
       const formData = new FormData(uploadForm);
-      // Generate a unique job ID for progress tracking
       const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       formData.append('job_id', jobId);
       
@@ -69,16 +88,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const startBtn = document.getElementById('startBtn');
 
       try {
-        startBtn.textContent = '分析中...';
+        startBtn.textContent = '處理中...';
         startBtn.disabled = true;
         
-        // Show progress bar
         progressContainer.classList.remove('d-none');
         progressBar.style.width = '0%';
         progressPercent.textContent = '0%';
-        progressStatus.textContent = '正在上傳影片...';
+        progressStatus.textContent = '正在上傳檔案...';
 
-        // Start polling for progress
         const pollInterval = setInterval(async () => {
           try {
             const res = await fetch(`/api/progress/${jobId}`);
@@ -86,15 +103,10 @@ document.addEventListener('DOMContentLoaded', () => {
               const data = await res.json();
               progressBar.style.width = data.progress + '%';
               progressPercent.textContent = Math.round(data.progress) + '%';
-              progressStatus.textContent = data.status || '分析中...';
-              
-              if (data.progress >= 100) {
-                clearInterval(pollInterval);
-              }
+              progressStatus.textContent = data.status || '處理中...';
+              if (data.progress >= 100) clearInterval(pollInterval);
             }
-          } catch (err) {
-            console.error('Polling error:', err);
-          }
+          } catch (err) {}
         }, 1000);
 
         const response = await fetch('/upload', {
@@ -102,82 +114,74 @@ document.addEventListener('DOMContentLoaded', () => {
           body: formData
         });
         
-        clearInterval(pollInterval); // Stop polling when request finishes
-        
+        clearInterval(pollInterval);
         const result = await response.json();
         
         if (response.ok) {
-          // Finalize progress bar
           progressBar.style.width = '100%';
           progressPercent.textContent = '100%';
-          progressStatus.textContent = '分析完成！';
+          progressStatus.textContent = '處理完成！';
           currentAnalysis.record_id = result.record_id;
           currentAnalysis.peak_data = result.peak_data;
-          currentAnalysis.scale_info = result.scale_info;
+          currentAnalysis.scale_info = {
+            reference: document.getElementById('scale_reference').value,
+            pixels: document.getElementById('scale_pixels').value
+          };
           currentAnalysis.person_records = result.person_records;
           currentAnalysis.fps = result.fps || 30;
 
-          // 更新預覽畫面顯示分析後的影片
+          // 更新預覽畫面
           const videoFrame = document.querySelector('.video-frame');
-          if (videoFrame && result.video_url) {
-            const videoUrl = result.video_url + '?t=' + new Date().getTime();
-            videoFrame.innerHTML = `
-              <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
-                <source src="${videoUrl}" type="video/mp4">
-                您的瀏覽器不支援影片播放。
-              </video>
-            `;
+          if (videoFrame) {
+            videoFrame.innerHTML = '';
+            if (result.video_url) {
+                const videoUrl = result.video_url + '?t=' + new Date().getTime();
+                videoFrame.innerHTML += `
+                  <div class="mb-3">
+                    <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
+                        <source src="${videoUrl}" type="video/mp4">
+                    </video>
+                  </div>
+                `;
+                const speedContainer = document.getElementById('previewSpeedContainer');
+                if (speedContainer) speedContainer.classList.remove('d-none');
+            }
+            if (result.imu_plot_url || result.record_id) {
+                const imuUrl = result.imu_plot_url || `/api/imu_plot/${result.record_id}?type=acc_res`;
+                videoFrame.innerHTML += `
+                  <div class="mt-4 text-center">
+                    <h5 class="small text-muted mb-3 mono">IMU ANALYSIS PREVIEW (RESULTANT ACC)</h5>
+                    <div class="bg-white p-2 rounded border">
+                        <img src="${imuUrl}" class="img-fluid" alt="IMU Plot">
+                    </div>
+                  </div>
+                `;
+            }
             videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
             videoFrame.style.height = 'auto';
             videoFrame.style.minHeight = '0';
             videoFrame.style.background = 'transparent';
             videoFrame.style.border = 'none';
-
-            // Show speed control and apply current speed
-            const speedContainer = document.getElementById('previewSpeedContainer');
-            const speedSelector = document.getElementById('previewSpeed');
-            const previewVideo = document.getElementById('previewVideo');
-            if (speedContainer) speedContainer.classList.remove('d-none');
-            if (speedSelector && previewVideo) {
-                previewVideo.playbackRate = parseFloat(speedSelector.value);
-            }
-
-            // 更新下載連結
-            const downloadBtn = document.querySelector('a[href="#"][class*="btn-dark"]');
-            if (downloadBtn) {
-              downloadBtn.href = videoUrl;
-              downloadBtn.download = result.video_url.split('/').pop();
-            }
-            const csvBtns = document.querySelectorAll('a[href="#"][class*="btn-outline-dark"]');
-            if (csvBtns.length >= 2) {
-              if (result.pose_csv) {
-                csvBtns[0].href = '/static/' + result.pose_csv;
-                csvBtns[0].download = result.pose_csv.split('/').pop();
-              }
-              // Gait CSV 可能是之後生成的，這裡我們先填入路徑
-              if (result.record_id) {
-                csvBtns[1].href = `/static/jobs/${result.record_id}/${result.record_id}_peaks.csv`;
-                csvBtns[1].download = `${result.record_id}_peaks.csv`;
-              }
-            }
           }
 
-          populatePeakTable(result.peak_data);
+          if (result.peak_data && result.peak_data.length > 0) {
+            populatePeakTable(result.peak_data);
+          } else {
+            document.getElementById('csvBody').innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">此項目無步頻數據</td></tr>';
+          }
 
           const resultSec = document.getElementById('result');
           if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
-          
-          setTimeout(() => alert('分析完成！'), 500);
+          setTimeout(() => alert('處理完成！'), 500);
         } else {
-          alert('分析失敗: ' + result.error);
+          alert('處理失敗: ' + result.error);
         }
       } catch (err) {
         console.error(err);
-        alert('上傳過程發生錯誤，請稍後再試。');
+        alert('發生錯誤，請稍後再試。');
       } finally {
-        const btn = uploadForm.querySelector('button[type="submit"]');
-        btn.textContent = '開始分析';
-        btn.disabled = false;
+        startBtn.textContent = '開始分析 / START ANALYSIS';
+        startBtn.disabled = false;
       }
     });
   }

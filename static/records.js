@@ -158,21 +158,53 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('detailDate').textContent = record.date;
                 document.getElementById('detailNote').textContent = record.note;
                 
-                const video = document.getElementById('detailVideo');
-                const videoPath = record.result_video || record.original_video;
-                video.innerHTML = '';
-                video.setAttribute('playsinline', '');
-                video.setAttribute('webkit-playsinline', '');
-                const source = document.createElement('source');
-                source.src = `/media/${videoPath}`;
-                source.type = videoPath.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/x-msvideo';
-                video.appendChild(source);
-                video.load();
+                // Handle Video Visibility
+                const videoContainer = document.getElementById('videoContainer');
+                const poseChartContainer = document.getElementById('poseChartContainer');
+                const appendVideoBtn = document.getElementById('appendVideoBtn');
                 
-                // Apply current playback speed
-                const speedSelector = document.getElementById('videoSpeed');
-                if (speedSelector) {
-                    video.playbackRate = parseFloat(speedSelector.value);
+                if (record.original_video || record.result_video) {
+                    videoContainer.classList.remove('d-none');
+                    poseChartContainer.classList.remove('d-none');
+                    appendVideoBtn.classList.add('d-none');
+                    
+                    const video = document.getElementById('detailVideo');
+                    const videoPath = record.result_video || record.original_video;
+                    video.innerHTML = '';
+                    
+                    // Add attributes for mobile/inline playback
+                    video.setAttribute('playsinline', '');
+                    video.setAttribute('webkit-playsinline', '');
+                    
+                    const source = document.createElement('source');
+                    source.src = `/media/${videoPath}`;
+                    source.type = videoPath.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/x-msvideo';
+                    video.appendChild(source);
+                    video.load();
+
+                    // Apply current playback speed
+                    const speedSelector = document.getElementById('videoSpeed');
+                    if (speedSelector) {
+                        video.playbackRate = parseFloat(speedSelector.value);
+                    }
+                } else {
+                    videoContainer.classList.add('d-none');
+                    poseChartContainer.classList.add('d-none');
+                    appendVideoBtn.classList.remove('d-none');
+                }
+
+                // Handle IMU Visibility
+                const imuContainer = document.getElementById('imuContainer');
+                const appendImuBtn = document.getElementById('appendImuBtn');
+                if (record.imu_csv_path) {
+                    imuContainer.classList.remove('d-none');
+                    appendImuBtn.classList.add('d-none');
+                    document.getElementById('downloadImu').href = `/static/${record.imu_csv_path}`;
+                    // Trigger default IMU plot
+                    updateImuPlot();
+                } else {
+                    imuContainer.classList.add('d-none');
+                    appendImuBtn.classList.remove('d-none');
                 }
                 
                 document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
@@ -180,16 +212,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 recordsSection.classList.add('d-none');
                 detailSection.classList.remove('d-none');
                 
-                // Parts based on standard pose output
-                const parts = [
-                    'Right_Ankle', 'Left_Ankle', 'R_Shoulder', 'L_Shoulder', 
-                    'R_Hip', 'L_Hip', 'R_Knee', 'L_Knee'
-                ];
-                populatePartSelect(parts);
-                updateChart();
+                if (record.pose_csv) {
+                    const parts = ['Right_Ankle', 'Left_Ankle', 'R_Shoulder', 'L_Shoulder', 'R_Hip', 'L_Hip', 'R_Knee', 'L_Knee'];
+                    populatePartSelect(parts);
+                    updateChart();
+                }
             })
             .catch(err => console.error('Error fetching record detail:', err));
     }
+
+    // Append Logic
+    const appendModal = new bootstrap.Modal(document.getElementById('appendModal'));
+    const appendForm = document.getElementById('appendForm');
+
+    document.getElementById('appendVideoBtn').onclick = () => {
+        document.getElementById('appendRecordId').value = currentRecordId;
+        document.getElementById('appendType').value = 'video';
+        document.getElementById('appendModalTitle').textContent = '補傳分析影片';
+        document.getElementById('appendFileLabel').textContent = '選擇影片檔案 (MP4/MOV)';
+        document.getElementById('appendFileInput').accept = 'video/*';
+        document.getElementById('appendScaleGroup').classList.remove('d-none');
+        appendModal.show();
+    };
+
+    document.getElementById('appendImuBtn').onclick = () => {
+        document.getElementById('appendRecordId').value = currentRecordId;
+        document.getElementById('appendType').value = 'imu';
+        document.getElementById('appendModalTitle').textContent = '補傳 IMU 數據';
+        document.getElementById('appendFileLabel').textContent = '選擇數據檔案 (CSV/XLSX)';
+        document.getElementById('appendFileInput').accept = '.csv, .xls, .xlsx';
+        document.getElementById('appendScaleGroup').classList.add('d-none');
+        appendModal.show();
+    };
+
+    appendForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const type = document.getElementById('appendType').value;
+        const formData = new FormData();
+        formData.append('record_id', document.getElementById('appendRecordId').value);
+        
+        const fileInput = document.getElementById('appendFileInput');
+        if (type === 'video') {
+            formData.append('video', fileInput.files[0]);
+            formData.append('scale_reference', document.getElementById('appendScaleRef').value);
+            formData.append('scale_pixels', document.getElementById('appendScalePx').value);
+        } else {
+            formData.append('imu_file', fileInput.files[0]);
+        }
+
+        const btn = document.getElementById('submitAppendBtn');
+        btn.disabled = true;
+        btn.textContent = '處理中...';
+
+        try {
+            const res = await fetch('/api/append_data', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (res.ok) {
+                alert('數據已補齊！');
+                appendModal.hide();
+                showDetail(currentRecordId); // Refresh
+            } else {
+                alert('失敗: ' + data.error);
+            }
+        } catch (err) {
+            alert('發生錯誤');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '上傳並處理';
+        }
+    };
 
     // Edit logic
     const editModal = new bootstrap.Modal(document.getElementById('editModal'));
@@ -265,6 +356,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 spinner.classList.add('d-none');
             });
     }
+
+    function updateImuPlot() {
+        const type = document.getElementById('imuPlotType').value;
+        const img = document.getElementById('imuPlot');
+        const spinner = document.getElementById('imuPlotSpinner');
+        
+        if (!currentRecordId || !type) return;
+
+        img.style.opacity = '0.3';
+        spinner.classList.remove('d-none');
+
+        fetch(`/api/imu_plot/${currentRecordId}?type=${type}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.plot_url) {
+                    img.src = data.plot_url;
+                    img.style.opacity = '1';
+                } else {
+                    console.error('IMU Plot error:', data.error);
+                }
+                spinner.classList.add('d-none');
+            })
+            .catch(err => {
+                console.error('Error fetching IMU plot:', err);
+                spinner.classList.add('d-none');
+                img.style.opacity = '1';
+            });
+    }
+
+    document.getElementById('imuPlotType').onchange = updateImuPlot;
+
+    document.getElementById('deleteImuDataBtn').onclick = () => {
+        if (currentRecordId && confirm('確定要刪除此紀錄中的 IMU 數據嗎？此動作無法復原。')) {
+            fetch(`/api/record/${currentRecordId}/imu`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.message) {
+                        alert('IMU 數據已刪除');
+                        showDetail(currentRecordId); // Refresh to show "Append" button
+                    } else {
+                        alert('刪除失敗: ' + data.error);
+                    }
+                })
+                .catch(err => console.error('Error deleting IMU data:', err));
+        }
+    };
 
     function updateBreadcrumb(level, recordData = null) {
         // Reset breadcrumb

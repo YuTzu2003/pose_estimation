@@ -6,7 +6,6 @@ from models.experimental import attempt_load
 from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt
 
-# 全域變數用於緩存模型，避免重複載入
 _model = None
 _device = None
 
@@ -24,7 +23,7 @@ def get_person_records(video_path, weights='yolov7-w6-pose.pt', show=False):
     
     is_person_present = False
     start_frame = 0
-    patience = 15          # 容錯幀數：連續15幀沒抓到人才中斷
+    patience = 15   # 容錯幀數：連續15幀沒抓到人才中斷
     missing_frames = 0
     frame_count = 0
     records = []
