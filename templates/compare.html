@@ -10,31 +10,96 @@
     </header>
 
     <section class="section">
-      <div class="row g-3">
-        <div class="col-md-4">
-          <label class="form-label">選手 / ATHLETE</label>
-          <select id="cmpAthlete" class="form-select"></select>
+      <div class="row g-4">
+        <!-- Record A Selection -->
+        <div class="col-lg-6">
+          <div class="tile h-100" style="padding:1.5rem">
+            <div class="tile-num">[RECORD A]</div>
+            <h5 class="mb-3">選擇基準紀錄</h5>
+            <div class="row g-2">
+              <div class="col-sm-6">
+                <label class="form-label small text-muted">選手 / ATHLETE</label>
+                <select id="athleteA" class="form-select form-select-sm">
+                    <option value="">選擇選手...</option>
+                    {% for player in players %}
+                    <option value="{{ player[0] }}">{{ player[1] }}</option>
+                    {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small text-muted">場次 / SESSION</label>
+                <select id="recordA" class="form-select form-select-sm" disabled>
+                    <option value="">選擇紀錄...</option>
+                </select>
+              </div>
+            </div>
+            <div id="videoContainerA" class="mt-3 bg-dark rounded overflow-hidden d-flex align-items-center justify-content-center" style="aspect-ratio: 16/9;">
+                <span class="text-white-50 small mono">VIDEO A</span>
+            </div>
+          </div>
         </div>
-        <div class="col-md-4">
-          <label class="form-label">紀錄 A / SESSION A</label>
-          <select id="cmpA" class="form-select"></select>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">紀錄 B / SESSION B</label>
-          <select id="cmpB" class="form-select"></select>
+
+        <!-- Record B Selection -->
+        <div class="col-lg-6">
+          <div class="tile h-100" style="padding:1.5rem">
+            <div class="tile-num">[RECORD B]</div>
+            <h5 class="mb-3">選擇對照紀錄</h5>
+            <div class="row g-2">
+              <div class="col-sm-6">
+                <label class="form-label small text-muted">選手 / ATHLETE</label>
+                <select id="athleteB" class="form-select form-select-sm">
+                    <option value="">選擇選手...</option>
+                    {% for player in players %}
+                    <option value="{{ player[0] }}">{{ player[1] }}</option>
+                    {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label small text-muted">場次 / SESSION</label>
+                <select id="recordB" class="form-select form-select-sm" disabled>
+                    <option value="">選擇紀錄...</option>
+                </select>
+              </div>
+            </div>
+            <div id="videoContainerB" class="mt-3 bg-dark rounded overflow-hidden d-flex align-items-center justify-content-center" style="aspect-ratio: 16/9;">
+                <span class="text-white-50 small mono">VIDEO B</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="mt-4">
-        <label class="form-label">關節部位 / JOINTS</label>
-        <div class="row g-2" id="jointPicker">
-          <!-- 6 check-cards filled by JS -->
+      <div class="mt-4 tile" style="padding:1.5rem">
+        <div class="row align-items-end g-3">
+          <div class="col-md-4">
+            <label class="form-label">比對類型 / TYPE</label>
+            <select id="compareType" class="form-select">
+                <option value="skeleton">骨幹角度 (Skeleton Angles)</option>
+                <option value="imu">IMU 運動數據 (IMU Data)</option>
+                <option value="merged">合併比對 (Merged View)</option>
+            </select>
+          </div>
+          <div class="col-md-4" id="jointPickerCol">
+            <label class="form-label">關節部位 / JOINTS</label>
+            <select id="jointSelect" class="form-select">
+                <option value="knee">膝關節 Knee</option>
+                <option value="hip">髖關節 Hip</option>
+                <option value="ankle">踝關節 Ankle</option>
+                <option value="shoulder">肩關節 Shoulder</option>
+                <option value="elbow">肘關節 Elbow</option>
+            </select>
+          </div>
+          <div class="col-md-4" id="imuPickerCol" style="display:none">
+            <label class="form-label">IMU 指標 / METRIC</label>
+            <select id="imuMetricSelect" class="form-select">
+                <option value="acc_res">合加速度 (Acc Res)</option>
+                <option value="acc_xyz">三軸加速度 (Acc XYZ)</option>
+                <option value="gyr_xyz">三軸角速度 (Gyr XYZ)</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <button class="btn btn-dark w-100" id="runCompare">執行比對 / RUN COMPARE</button>
+          </div>
         </div>
-      </div>
-
-      <div class="d-flex gap-2 mt-4">
-        <button class="btn btn-dark" id="runCompare">執行比對</button>
-        <button class="btn btn-outline-dark" id="resetCompare">重設</button>
       </div>
     </section>
 

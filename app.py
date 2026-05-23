@@ -523,6 +523,108 @@ def regenerate_gait():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/player_records/<player_id>')
+def get_player_records(player_id):
+    conn = get_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT Record_id, Session_name, Created_at, Original_Video_Path, Result_Video_Path 
+            FROM Record WHERE Player_id = ? 
+            ORDER BY Created_at DESC
+        """, (player_id,))
+        rows = cursor.fetchall()
+        records = []
+        for r in rows:
+            records.append({
+                'Record_id': r[0],
+                'Session_name': r[1],
+                'Created_at': r[2].strftime("%Y-%m-%d %H:%M"),
+                'Original_Video_Path': r[3],
+                'Result_Video_Path': r[4]
+            })
+        return jsonify(records)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        release_conn(conn)
+
+@app.route('/api/record_detail/<record_id>')
+def get_record_detail(record_id):
+    conn = get_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM Record WHERE Record_id = ?", (record_id,))
+        row = cursor.fetchone()
+        if not row: return jsonify({'error': 'Record not found'}), 404
+        
+        # Columns: Record_id, Player_id, Session_name, Note, Original_Video_Path, Result_Video_Path, Pose_csv_path, IMU_csv_path, IMU_plot_path, Created_at
+        record_data = {
+            'Record_id': row[0],
+            'Player_id': row[1],
+            'Session_name': row[2],
+            'Note': row[3],
+            'Result_Video_Path': row[5],
+            'Pose_csv_path': row[6],
+            'IMU_csv_path': row[7]
+        }
+        
+        # Load Pose Data
+        pose_data = []
+        if row[6]:
+            csv_path = os.path.join(app.static_folder, row[6])
+            if os.path.exists(csv_path):
+                import pandas as pd
+                df = pd.read_csv(csv_path)
+                # Map expected column names for skeleton angles
+                angle_cols = {
+                    'Right_Knee_Angle': 'knee',
+                    'Right_Hip_Angle': 'hip',
+                    'Right_Ankle_Angle': 'ankle',
+                    'Right_Shoulder_Angle': 'shoulder',
+                    'Right_Elbow_Angle': 'elbow'
+                }
+                # Check if columns exist, if not try simple names
+                available_cols = {v: k for k, v in angle_cols.items() if k in df.columns}
+                if not available_cols:
+                    # Try fallback (lowercase or simple names)
+                    available_cols = {c.lower(): c for c in df.columns if c.lower() in ['knee', 'hip', 'ankle', 'shoulder', 'elbow']}
+                
+                for _, r in df.iterrows():
+                    entry = {}
+                    for target, src in available_cols.items():
+                        entry[target] = float(r[src]) if not pd.isna(r[src]) else 0
+                    pose_data.append(entry)
+
+        # Load IMU Data
+        imu_data = []
+        if row[7]:
+            imu_path = os.path.join(app.static_folder, row[7])
+            if os.path.exists(imu_path):
+                import pandas as pd
+                df_imu = pd.read_csv(imu_path)
+                # Ensure we have acc_res, etc.
+                for _, r in df_imu.iterrows():
+                    entry = {}
+                    for col in ['acc_res', 'acc_x', 'acc_y', 'acc_z', 'gyr_x', 'gyr_y', 'gyr_z']:
+                        if col in df_imu.columns:
+                            entry[col] = float(r[col]) if not pd.isna(r[col]) else 0
+                        elif col.replace('_', ' ') in df_imu.columns: # handle spaces if any
+                            entry[col] = float(r[col.replace('_', ' ')])
+                    imu_data.append(entry)
+
+        return jsonify({
+            'record': record_data,
+            'pose_data': pose_data,
+            'imu_data': imu_data
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        release_conn(conn)
+
 @app.route('/player.html')
 def player_page():
     return render_template('player.html')
