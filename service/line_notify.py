@@ -1,6 +1,25 @@
 import requests
+from flask import Blueprint, request, jsonify
 
 LINE_CHANNEL_ACCESS_TOKEN = "1PkB7skbzKdLeeU1cho5Gt59XE/ktHG3yQ1AqeXmYSa5wX1x7kvLheGUFU6vFS7YvDfeqzrKc2Q17o8iObXoEUw+KWyhn4mp/u+wPuLe4BJmfUoQppujent605vkkhnX6eUfcxIc6/s2/2qUYymUmQdB04t89/1O/w1cDnyilFU="
+
+line_notify_bp = Blueprint('line_notify', __name__)
+
+@line_notify_bp.route('/api/line_notify', methods=['POST'])
+def line_notify():
+    data = request.json
+    record_id = data.get('record_id')
+    session_name = data.get('session_name')
+    
+    if not record_id:
+        return jsonify({'error': 'Missing record_id'}), 400
+        
+    try:
+        result = send_save_notification(record_id, session_name or "未指定場次")
+        return jsonify({'success': True, 'result': result})
+    except Exception as e:
+        print(f"LINE notification error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 def broadcast_line_message(text):
     """
