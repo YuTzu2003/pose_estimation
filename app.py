@@ -354,19 +354,27 @@ def analyze():
     if scale_info.get('reference'):
         full_note += f"\n[比例尺: {scale_info['reference']}m = {scale_info['pixels']}px]"
     
+    # Store frame interval (assuming first record is the primary one)
+    frame_start = 0
+    frame_end = 0
+    if person_records and len(person_records) > 0:
+        frame_start = int(person_records[0][0])
+        frame_end = int(person_records[0][1])
+
+    project_folder = f"jobs/{record_id}"
+    
     conn = get_conn()
     try:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO Record 
-            (Record_id, Player_id, Session_name, Note, Original_Video_Path, Result_Video_Path, Pose_csv_path, IMU_csv_path, IMU_plot_path, Created_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
-        """, (record_id, athlete, session_name, full_note, orig_video_db_path, result_video_path, pose_csv_path, imu_csv_db_path, None))
+            (Record_id, Player_id, Session_name, Note, Project_Folder, Frame_Start, Frame_End, Created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())
+        """, (record_id, athlete, session_name, full_note, project_folder, frame_start, frame_end))
         conn.commit()
     except Exception as e:
         conn.rollback()
         print(f"Database error: {e}")
-        # Even if DB fails, we return the result so UI can show it
     finally:
         release_conn(conn)   
     
@@ -413,41 +421,37 @@ def append_data():
             filename = record_id + original_ext
             abs_video_path = os.path.join(project_dir, filename)
             video_file.save(abs_video_path)
-            orig_video_db_path = f"jobs/{record_id}/{filename}"
             
             person_records = get_person_records(abs_video_path)
             res_video, res_csv = run_pose_analysis(abs_video_path, project_dir, record_id, person_records)
             
             pose_csv_abs = os.path.join(project_dir, res_csv)
             peaks_csv_abs = os.path.join(project_dir, f"{record_id}_peaks.csv")
-            result_video_path = f"jobs/{record_id}/{res_video}"
             
             if peak_smooth(pose_csv_abs, peaks_csv_abs):
                 gait_video_name = f"{record_id}_gait.mp4"
                 gait_video_abs = os.path.join(project_dir, gait_video_name)
                 ratio = float(scale_reference) / float(scale_pixels)
-                final_gait_video = run_step(os.path.join(project_dir, res_video), peaks_csv_abs, gait_video_abs, ratio=ratio, person_records=person_records)
-                if final_gait_video: result_video_path = f"jobs/{record_id}/{final_gait_video}"
+                run_step(os.path.join(project_dir, res_video), peaks_csv_abs, gait_video_abs, ratio=ratio, person_records=person_records)
+
+            frame_start = 0
+            frame_end = 0
+            if person_records and len(person_records) > 0:
+                frame_start = int(person_records[0][0])
+                frame_end = int(person_records[0][1])
 
             cursor.execute("""
-                UPDATE Record SET Original_Video_Path = ?, Result_Video_Path = ?, Pose_csv_path = ?
+                UPDATE Record SET Frame_Start = ?, Frame_End = ?
                 WHERE Record_id = ?
-            """, (orig_video_db_path, result_video_path, f"jobs/{record_id}/{res_csv}", record_id))
+            """, (frame_start, frame_end, record_id))
 
         if imu_file:
             imu_ext = os.path.splitext(imu_file.filename)[1] or ".csv"
             imu_filename = f"{record_id}_imu_orig{imu_ext}"
             abs_imu_path = os.path.join(project_dir, imu_filename)
             imu_file.save(abs_imu_path)
-            
-            std_csv_file, err = process_imu_data(abs_imu_path, project_dir, record_id)
-            if std_csv_file:
-                cursor.execute("""
-                    UPDATE Record SET IMU_csv_path = ?, IMU_plot_path = NULL
-                    WHERE Record_id = ?
-                """, (f"jobs/{record_id}/{std_csv_file}", record_id))
-            else:
-                return jsonify({'error': f'IMU 解析失敗: {err}'}), 500
+            process_imu_data(abs_imu_path, project_dir, record_id)
+            # Standard output is record_id_imu_std.csv in project_dir
 
         conn.commit()
         return jsonify({'success': True, 'message': '資料已成功補齊'})
@@ -476,7 +480,7 @@ def regenerate_gait():
         df = pd.DataFrame(peak_data)
         df.to_csv(peaks_csv_abs, index=False)
         
-        # 尋找輸入影片，可能是 .mp4 或 .avi
+        # 尋找輸入影片
         input_video_for_gait = None
         for ext in ['_result.mp4', '_result.avi', '.mp4', '.avi']:
             test_path = os.path.join(project_dir, f"{record_id}{ext}")
@@ -498,22 +502,9 @@ def regenerate_gait():
         )
         
         if final_gait_video:
-            result_video_path = f"jobs/{record_id}/{final_gait_video}"
-            
-            # 更新資料庫
-            conn = get_conn()
-            try:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE Record SET Result_Video_Path = ? WHERE Record_id = ?", (result_video_path, record_id))
-                conn.commit()
-            except Exception as db_e:
-                print(f"Database update failed: {db_e}")
-            finally:
-                release_conn(conn)
-                
             return jsonify({
                 'success': True,
-                'video_url': f"/static/{result_video_path}?t={int(time.time())}"
+                'video_url': f"/static/jobs/{record_id}/{final_gait_video}?t={int(time.time())}"
             })
         else:
             return jsonify({'error': '影片生成程序執行失敗'}), 500
@@ -529,19 +520,30 @@ def get_player_records(player_id):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT Record_id, Session_name, Created_at, Original_Video_Path, Result_Video_Path 
+            SELECT Record_id, Session_name, Created_at, Project_Folder
             FROM Record WHERE Player_id = ? 
             ORDER BY Created_at DESC
         """, (player_id,))
         rows = cursor.fetchall()
         records = []
         for r in rows:
+            record_id = r[0]
+            project_folder = r[3]
+            # Reconstruct result video path
+            result_video = None
+            abs_project_dir = os.path.join(app.root_path, 'static', project_folder)
+            if os.path.exists(abs_project_dir):
+                for f in os.listdir(abs_project_dir):
+                    if f.startswith(record_id) and any(x in f for x in ['_gait', '_result']):
+                        result_video = f"{project_folder}/{f}"
+                        break
+            
             records.append({
-                'Record_id': r[0],
+                'Record_id': record_id,
                 'Session_name': r[1],
                 'Created_at': r[2].strftime("%Y-%m-%d %H:%M"),
-                'Original_Video_Path': r[3],
-                'Result_Video_Path': r[4]
+                'Project_Folder': project_folder,
+                'Result_Video_Path': result_video
             })
         return jsonify(records)
     except Exception as e:
@@ -554,42 +556,49 @@ def get_record_detail(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM Record WHERE Record_id = ?", (record_id,))
+        cursor.execute("SELECT Record_id, Player_id, Session_name, Note, Project_Folder, Frame_Start, Frame_End FROM Record WHERE Record_id = ?", (record_id,))
         row = cursor.fetchone()
         if not row: return jsonify({'error': 'Record not found'}), 404
         
-        # Columns: Record_id, Player_id, Session_name, Note, Original_Video_Path, Result_Video_Path, Pose_csv_path, IMU_csv_path, IMU_plot_path, Created_at
+        project_folder = row[4]
+        abs_project_dir = os.path.join(app.root_path, 'static', project_folder)
+        
         record_data = {
             'Record_id': row[0],
             'Player_id': row[1],
             'Session_name': row[2],
             'Note': row[3],
-            'Result_Video_Path': row[5],
-            'Pose_csv_path': row[6],
-            'IMU_csv_path': row[7]
+            'Project_Folder': project_folder,
+            'Frame_Start': row[5],
+            'Frame_End': row[6]
         }
         
+        # Derive file paths
+        pose_csv_rel = None
+        imu_csv_rel = None
+        result_video_rel = None
+        
+        if os.path.exists(abs_project_dir):
+            for f in os.listdir(abs_project_dir):
+                if f.endswith('_pose.csv'): pose_csv_rel = f"{project_folder}/{f}"
+                elif f.endswith('_imu_std.csv'): imu_csv_rel = f"{project_folder}/{f}"
+                elif f.startswith(record_id) and any(x in f for x in ['_gait', '_result']): result_video_rel = f"{project_folder}/{f}"
+
+        record_data['Result_Video_Path'] = result_video_rel
+        record_data['Pose_csv_path'] = pose_csv_rel
+        record_data['IMU_csv_path'] = imu_csv_rel
+
         # Load Pose Data
         pose_data = []
-        if row[6]:
-            csv_path = os.path.join(app.static_folder, row[6])
+        if pose_csv_rel:
+            csv_path = os.path.join(app.root_path, 'static', pose_csv_rel)
             if os.path.exists(csv_path):
                 import pandas as pd
                 df = pd.read_csv(csv_path)
-                # Map expected column names for skeleton angles
-                angle_cols = {
-                    'Right_Knee_Angle': 'knee',
-                    'Right_Hip_Angle': 'hip',
-                    'Right_Ankle_Angle': 'ankle',
-                    'Right_Shoulder_Angle': 'shoulder',
-                    'Right_Elbow_Angle': 'elbow'
-                }
-                # Check if columns exist, if not try simple names
+                angle_cols = {'Right_Knee_Angle': 'knee', 'Right_Hip_Angle': 'hip', 'Right_Ankle_Angle': 'ankle', 'Right_Shoulder_Angle': 'shoulder', 'Right_Elbow_Angle': 'elbow'}
                 available_cols = {v: k for k, v in angle_cols.items() if k in df.columns}
                 if not available_cols:
-                    # Try fallback (lowercase or simple names)
                     available_cols = {c.lower(): c for c in df.columns if c.lower() in ['knee', 'hip', 'ankle', 'shoulder', 'elbow']}
-                
                 for _, r in df.iterrows():
                     entry = {}
                     for target, src in available_cols.items():
@@ -598,18 +607,17 @@ def get_record_detail(record_id):
 
         # Load IMU Data
         imu_data = []
-        if row[7]:
-            imu_path = os.path.join(app.static_folder, row[7])
+        if imu_csv_rel:
+            imu_path = os.path.join(app.root_path, 'static', imu_csv_rel)
             if os.path.exists(imu_path):
                 import pandas as pd
                 df_imu = pd.read_csv(imu_path)
-                # Ensure we have acc_res, etc.
                 for _, r in df_imu.iterrows():
                     entry = {}
                     for col in ['acc_res', 'acc_x', 'acc_y', 'acc_z', 'gyr_x', 'gyr_y', 'gyr_z']:
                         if col in df_imu.columns:
                             entry[col] = float(r[col]) if not pd.isna(r[col]) else 0
-                        elif col.replace('_', ' ') in df_imu.columns: # handle spaces if any
+                        elif col.replace('_', ' ') in df_imu.columns:
                             entry[col] = float(r[col.replace('_', ' ')])
                     imu_data.append(entry)
 

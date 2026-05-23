@@ -21,28 +21,49 @@ def get_all_records():
         cursor = conn.cursor()
         if player_id:
             cursor.execute("""
-                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Original_Video_Path, R.Result_Video_Path, R.Pose_csv_path, R.Created_at FROM Record R
+                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
                 LEFT JOIN Player P ON R.Player_id = P.Player_id
                 WHERE R.Player_id = ?
                 ORDER BY R.Created_at DESC""", (player_id,))
         else:
             cursor.execute("""
-                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Original_Video_Path, R.Result_Video_Path, R.Pose_csv_path, R.Created_at FROM Record R
+                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
                 LEFT JOIN Player P ON R.Player_id = P.Player_id
                 ORDER BY R.Created_at DESC""")
         
         rows = cursor.fetchall()
         for row in rows:
+            record_id = row[0]
+            project_folder = row[5]
+            
+            # Dynamically find paths
+            original_video = None
+            result_video = None
+            pose_csv = None
+            
+            abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
+            if os.path.exists(abs_project_dir):
+                for f in os.listdir(abs_project_dir):
+                    if f.endswith('_pose.csv'): pose_csv = f"{project_folder}/{f}"
+                    elif f.startswith(record_id):
+                        if any(x in f for x in ['_gait', '_result']): result_video = f"{project_folder}/{f}"
+                        elif not any(x in f for x in ['_peaks', '_imu']): 
+                            ext = os.path.splitext(f)[1].lower()
+                            if ext in ['.mp4', '.avi', '.mov']: original_video = f"{project_folder}/{f}"
+
             records.append({
-                'id': row[0],
+                'id': record_id,
                 'player_id': row[1],
                 'player_name': row[2] if row[2] else 'Unknown',
                 'session': row[3],
                 'note': row[4],
-                'original_video': row[5],
-                'result_video': row[6],
-                'pose_csv': row[7],
-                'date': row[8].strftime('%Y-%m-%d %H:%M') if row[8] else ''
+                'project_folder': project_folder,
+                'original_video': original_video,
+                'result_video': result_video,
+                'pose_csv': pose_csv,
+                'date': row[6].strftime('%Y-%m-%d %H:%M') if row[6] else '',
+                'frame_start': row[7],
+                'frame_end': row[8]
             })
         return jsonify(records), 200
     except Exception as e:
@@ -56,29 +77,54 @@ def get_record_details(record_id):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Original_Video_Path, R.Result_Video_Path, R.Pose_csv_path, R.Created_at,R.ValidPeaks_csv_path, R.IMU_csv_path, R.IMU_plot_path FROM Record R
+            SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
             LEFT JOIN Player P ON R.Player_id = P.Player_id
             WHERE R.Record_id = ?""", (record_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'error': 'Record not found'}), 404
-            
+        
+        project_folder = row[5]
+        
+        # Dynamically find paths
+        original_video = None
+        result_video = None
+        pose_csv = None
+        peaks_csv = None
+        imu_csv = None
+        
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
+        if os.path.exists(abs_project_dir):
+            for f in os.listdir(abs_project_dir):
+                if f.endswith('_pose.csv'): pose_csv = f"{project_folder}/{f}"
+                elif f.endswith('_peaks.csv'): peaks_csv = f"{project_folder}/{f}"
+                elif f.endswith('_imu_std.csv'): imu_csv = f"{project_folder}/{f}"
+                elif f.startswith(record_id):
+                    if any(x in f for x in ['_gait', '_result']): result_video = f"{project_folder}/{f}"
+                    elif not any(x in f for x in ['_peaks', '_imu']): 
+                        ext = os.path.splitext(f)[1].lower()
+                        if ext in ['.mp4', '.avi', '.mov']: original_video = f"{project_folder}/{f}"
+
         record = {
             'id': row[0],
             'player_id': row[1],
             'player_name': row[2] if row[2] else 'Unknown',
             'session': row[3],
             'note': row[4],
-            'original_video': row[5],
-            'result_video': row[6],
-            'pose_csv': row[7],
-            'date': row[8].strftime('%Y-%m-%d %H:%M') if row[8] else '',
-            'peaks_csv': row[9],
-            'imu_csv_path': row[10],
-            'imu_plot_path': row[11]
+            'project_folder': project_folder,
+            'original_video': original_video,
+            'result_video': result_video,
+            'pose_csv': pose_csv,
+            'peaks_csv': peaks_csv,
+            'imu_csv_path': imu_csv,
+            'date': row[6].strftime('%Y-%m-%d %H:%M') if row[6] else '',
+            'frame_start': row[7],
+            'frame_end': row[8]
         }
         return jsonify(record), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     finally:
         release_conn(conn)
@@ -109,17 +155,18 @@ def delete_record(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT Record_id FROM Record WHERE Record_id = ?", (record_id,))
+        cursor.execute("SELECT Project_Folder FROM Record WHERE Record_id = ?", (record_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'error': 'Record not found'}), 404
             
+        project_folder = row[0]
         cursor.execute("DELETE FROM Record WHERE Record_id = ?", (record_id,))
         conn.commit()
         
-        project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'jobs', record_id)
-        if os.path.exists(project_dir):
-            shutil.rmtree(project_dir)
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
+        if os.path.exists(abs_project_dir):
+            shutil.rmtree(abs_project_dir)
             
         return jsonify({'message': 'Record and files deleted successfully'}), 200
     except Exception as e:
@@ -133,29 +180,22 @@ def delete_record_imu(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT IMU_csv_path FROM Record WHERE Record_id = ?", (record_id,))
+        cursor.execute("SELECT Project_Folder FROM Record WHERE Record_id = ?", (record_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'error': 'Record not found'}), 404
             
-        imu_csv_path = row[0]
+        project_folder = row[0]
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
-        # Update database to remove IMU paths
-        cursor.execute("UPDATE Record SET IMU_csv_path = NULL, IMU_plot_path = NULL WHERE Record_id = ?", (record_id,))
-        conn.commit()
-        
-        # Optionally delete physical files in the job folder if they contain "_imu"
-        if imu_csv_path:
-            project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'jobs', record_id)
-            if os.path.exists(project_dir):
-                for f in os.listdir(project_dir):
-                    if '_imu' in f:
-                        try: os.remove(os.path.join(project_dir, f))
-                        except: pass
+        if os.path.exists(abs_project_dir):
+            for f in os.listdir(abs_project_dir):
+                if '_imu' in f:
+                    try: os.remove(os.path.join(abs_project_dir, f))
+                    except: pass
             
         return jsonify({'message': 'IMU data deleted successfully'}), 200
     except Exception as e:
-        conn.rollback()
         return jsonify({'error': str(e)}), 500
     finally:
         release_conn(conn)
@@ -166,18 +206,26 @@ def get_plot_image(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT Pose_csv_path FROM Record WHERE Record_id = ?", (record_id,))
+        cursor.execute("SELECT Project_Folder FROM Record WHERE Record_id = ?", (record_id,))
         row = cursor.fetchone()
-        if not row or not row[0]:
-            return jsonify({'error': 'CSV path not found'}), 404
+        if not row:
+            return jsonify({'error': 'Record not found'}), 404
             
-        csv_path = row[0]
-        full_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', csv_path)
+        project_folder = row[0]
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
-        if not os.path.exists(full_path):
-            return jsonify({'error': 'File not found'}), 404
+        # Find pose CSV
+        csv_path = None
+        if os.path.exists(abs_project_dir):
+            for f in os.listdir(abs_project_dir):
+                if f.endswith('_pose.csv'):
+                    csv_path = os.path.join(abs_project_dir, f)
+                    break
+        
+        if not csv_path or not os.path.exists(csv_path):
+            return jsonify({'error': 'Pose CSV file not found'}), 404
             
-        df = pd.read_csv(full_path)
+        df = pd.read_csv(csv_path)
         
         plt.figure(figsize=(10, 4))
         if f'{part}_X' in df.columns:
@@ -209,18 +257,26 @@ def get_imu_plot(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT IMU_csv_path FROM Record WHERE Record_id = ?", (record_id,))
+        cursor.execute("SELECT Project_Folder FROM Record WHERE Record_id = ?", (record_id,))
         row = cursor.fetchone()
-        if not row or not row[0]:
-            return jsonify({'error': 'IMU data not found'}), 404
+        if not row:
+            return jsonify({'error': 'Record not found'}), 404
             
-        csv_path = row[0]
-        full_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', csv_path)
+        project_folder = row[0]
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
-        if not os.path.exists(full_path):
-            return jsonify({'error': 'File not found'}), 404
+        # Find IMU std CSV
+        csv_path = None
+        if os.path.exists(abs_project_dir):
+            for f in os.listdir(abs_project_dir):
+                if f.endswith('_imu_std.csv'):
+                    csv_path = os.path.join(abs_project_dir, f)
+                    break
+        
+        if not csv_path or not os.path.exists(csv_path):
+            return jsonify({'error': 'IMU data file not found'}), 404
             
-        df = pd.read_csv(full_path)
+        df = pd.read_csv(csv_path)
         
         # Reset to default style for white background
         plt.style.use('default')

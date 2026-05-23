@@ -98,7 +98,10 @@ document.addEventListener('DOMContentLoaded', () => {
             tile.style.padding = '1rem 1.25rem';
             tile.innerHTML = `
                 <div class="flex-grow-1">
-                    <div class="fw-semibold">${r.session}</div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <div class="fw-semibold">${r.session}</div>
+                        <span class="badge bg-light text-dark border mono x-small">F: ${r.frame_start}-${r.frame_end}</span>
+                    </div>
                     <div class="small text-muted">${r.note || '無備註'}</div>
                 </div>
                 <div class="mono small text-muted text-end">
@@ -156,7 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateBreadcrumb('detail', record);
                 document.getElementById('detailSession').textContent = record.session;
                 document.getElementById('detailDate').textContent = record.date;
-                document.getElementById('detailNote').textContent = record.note;
+                document.getElementById('detailNote').textContent = record.note || '無備註';
+                document.getElementById('detailFrames').textContent = `FRAME ${record.frame_start} - ${record.frame_end}`;
                 
                 // Handle Video Visibility
                 const videoContainer = document.getElementById('videoContainer');
@@ -207,16 +211,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     appendImuBtn.classList.remove('d-none');
                 }
                 
-                document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
-                
-                recordsSection.classList.add('d-none');
-                detailSection.classList.remove('d-none');
-                
                 if (record.pose_csv) {
+                    document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
                     const parts = ['Right_Ankle', 'Left_Ankle', 'R_Shoulder', 'L_Shoulder', 'R_Hip', 'L_Hip', 'R_Knee', 'L_Knee'];
                     populatePartSelect(parts);
                     updateChart();
+                } else {
+                    document.getElementById('downloadPose').href = '#';
                 }
+                
+                recordsSection.classList.add('d-none');
+                detailSection.classList.remove('d-none');
             })
             .catch(err => console.error('Error fetching record detail:', err));
     }
