@@ -45,7 +45,7 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
     # 建立輸出影片 (使用 avc1 確保網頁可播放)
-    result_video_filename = f"{record_id}_result.mp4"
+    result_video_filename = f"{record_id}_pose.mp4"
     result_video_path = os.path.join(output_dir, result_video_filename)
     
     # 嘗試多種 FourCC 格式

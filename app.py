@@ -198,16 +198,22 @@ def upload():
     # 2. Process IMU if exists
     if imu_file and imu_file.filename != '':
         imu_ext = os.path.splitext(imu_file.filename)[1] or ".csv"
-        imu_filename = f"{record_id}_imu_orig{imu_ext}"
-        abs_imu_path = os.path.join(project_dir, imu_filename)
-        imu_file.save(abs_imu_path)
+        temp_imu_filename = f"{record_id}_temp_imu{imu_ext}"
+        abs_temp_imu_path = os.path.join(project_dir, temp_imu_filename)
+        imu_file.save(abs_temp_imu_path)
         
-        update_progress(10, "正在預處理 IMU 數據...")
-        std_csv_file, err = process_imu_data(abs_imu_path, project_dir, record_id)
+        update_progress(10, "正在驗證 IMU 數據...")
+        std_csv_file, err = process_imu_data(abs_temp_imu_path, project_dir, record_id)
+        
+        # Remove temporary file
+        if os.path.exists(abs_temp_imu_path):
+            os.remove(abs_temp_imu_path)
+            
         if std_csv_file:
             imu_csv_db_path = f"jobs/{record_id}/{std_csv_file}"
         else:
-            print(f"IMU Error: {err}")
+            update_progress(60, f"IMU 錯誤: {err}")
+            return jsonify({'error': err}), 400
     
     update_progress(100, "上傳與偵測完成！")
     
@@ -298,9 +304,19 @@ def analyze():
                     import pandas as pd
                     import numpy as np
                     peak_df = pd.read_csv(peaks_csv_abs)
-                    # Replace NaN/Inf with None for JSON serialization
-                    peak_df = peak_df.replace([np.inf, -np.inf], np.nan)
-                    peak_data_list = peak_df.where(pd.notnull(peak_df), None).to_dict(orient='records')
+                    
+                    # Convert to dict and explicitly handle NaN/Inf for JSON safety
+                    peak_data_list = []
+                    for _, row in peak_df.iterrows():
+                        entry = {}
+                        for col in peak_df.columns:
+                            val = row[col]
+                            if pd.isna(val) or (isinstance(val, float) and (np.isinf(val) or np.isnan(val))):
+                                entry[col] = None
+                            else:
+                                entry[col] = val
+                        peak_data_list.append(entry)
+                    
                     print(f"[DEBUG] Successfully loaded {len(peak_data_list)} peaks for {record_id}")
                 except Exception as e:
                     print(f"[DEBUG] Peak data processing error for {record_id}: {e}")
@@ -309,7 +325,8 @@ def analyze():
 
             if 'gait' in selected_modules:
                 update_progress(70, "開始生成步頻影片...")
-                gait_video_name = f"{record_id}_gait.mp4"
+                # New Naming: Final result is _result.mp4
+                gait_video_name = f"{record_id}_result.mp4"
                 gait_video_abs = os.path.join(project_dir, gait_video_name)
                 
                 try:
@@ -344,10 +361,11 @@ def analyze():
 
     # IMU path lookup
     imu_csv_db_path = None
-    for f in os.listdir(project_dir):
-        if f.endswith('_imu_std.csv'):
-            imu_csv_db_path = f"jobs/{record_id}/{f}"
-            break
+    if os.path.exists(project_dir):
+        for f in os.listdir(project_dir):
+            if f.endswith('_imu.csv'):
+                imu_csv_db_path = f"jobs/{record_id}/{f}"
+                break
 
     # 3. Database Save
     full_note = note or ""
@@ -451,7 +469,7 @@ def append_data():
             abs_imu_path = os.path.join(project_dir, imu_filename)
             imu_file.save(abs_imu_path)
             process_imu_data(abs_imu_path, project_dir, record_id)
-            # Standard output is record_id_imu_std.csv in project_dir
+            # Standard output is record_id_imu.csv in project_dir
 
         conn.commit()
         return jsonify({'success': True, 'message': '資料已成功補齊'})
@@ -480,19 +498,26 @@ def regenerate_gait():
         df = pd.DataFrame(peak_data)
         df.to_csv(peaks_csv_abs, index=False)
         
-        # 尋找輸入影片
-        input_video_for_gait = None
-        for ext in ['_result.mp4', '_result.avi', '.mp4', '.avi']:
-            test_path = os.path.join(project_dir, f"{record_id}{ext}")
-            if os.path.exists(test_path):
-                input_video_for_gait = test_path
-                break
+        # New Naming Logic: Input for gait is always the _pose.mp4
+        input_video_for_gait = os.path.join(project_dir, f"{record_id}_pose.mp4")
+        if not os.path.exists(input_video_for_gait):
+            # Fallback to check if any .mp4 exists that isn't _result
+            for f in os.listdir(project_dir):
+                if f.startswith(record_id) and f.endswith('.mp4') and '_result' not in f:
+                    input_video_for_gait = os.path.join(project_dir, f)
+                    break
         
-        if not input_video_for_gait:
-            return jsonify({'error': f'找不到原始分析影片 ({record_id}_result.mp4)'}), 404
+        if not os.path.exists(input_video_for_gait):
+            return jsonify({'error': f'找不到原始骨幹分析影片 ({record_id}_pose.mp4)'}), 404
             
-        gait_video_name = f"{record_id}_gait_v2.mp4"
+        # Naming: Output is always _result.mp4
+        gait_video_name = f"{record_id}_result.mp4"
         gait_video_abs = os.path.join(project_dir, gait_video_name)
+        
+        # VERSION CONTROL: Delete old _result videos to keep only latest
+        if os.path.exists(gait_video_abs):
+            try: os.remove(gait_video_abs)
+            except: pass
         
         ratio = float(scale_info['reference']) / float(scale_info['pixels'])
         
@@ -581,7 +606,7 @@ def get_record_detail(record_id):
         if os.path.exists(abs_project_dir):
             for f in os.listdir(abs_project_dir):
                 if f.endswith('_pose.csv'): pose_csv_rel = f"{project_folder}/{f}"
-                elif f.endswith('_imu_std.csv'): imu_csv_rel = f"{project_folder}/{f}"
+                elif f.endswith('_imu.csv'): imu_csv_rel = f"{project_folder}/{f}"
                 elif f.startswith(record_id) and any(x in f for x in ['_gait', '_result']): result_video_rel = f"{project_folder}/{f}"
 
         record_data['Result_Video_Path'] = result_video_rel

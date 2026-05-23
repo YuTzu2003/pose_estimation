@@ -98,10 +98,11 @@ def get_record_details(record_id):
             for f in os.listdir(abs_project_dir):
                 if f.endswith('_pose.csv'): pose_csv = f"{project_folder}/{f}"
                 elif f.endswith('_peaks.csv'): peaks_csv = f"{project_folder}/{f}"
-                elif f.endswith('_imu_std.csv'): imu_csv = f"{project_folder}/{f}"
+                elif f.endswith('_imu.csv'): imu_csv = f"{project_folder}/{f}"
                 elif f.startswith(record_id):
-                    if any(x in f for x in ['_gait', '_result']): result_video = f"{project_folder}/{f}"
-                    elif not any(x in f for x in ['_peaks', '_imu']): 
+                    if f.endswith('_result.mp4'): result_video = f"{project_folder}/{f}"
+                    elif f.endswith('_pose.mp4'): original_video = f"{project_folder}/{f}"
+                    elif not any(x in f for x in ['_peaks', '_imu', '.csv']): 
                         ext = os.path.splitext(f)[1].lower()
                         if ext in ['.mp4', '.avi', '.mov']: original_video = f"{project_folder}/{f}"
 
@@ -265,11 +266,11 @@ def get_imu_plot(record_id):
         project_folder = row[0]
         abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
-        # Find IMU std CSV
+        # Find IMU CSV
         csv_path = None
         if os.path.exists(abs_project_dir):
             for f in os.listdir(abs_project_dir):
-                if f.endswith('_imu_std.csv'):
+                if f.endswith('_imu.csv'):
                     csv_path = os.path.join(abs_project_dir, f)
                     break
         

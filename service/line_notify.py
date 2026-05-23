@@ -22,13 +22,6 @@ def broadcast_line_message(text):
         ]
     }
 
-    # Debug log
-    try:
-        with open("last_line_message.txt", "w", encoding="utf-8") as f:
-            f.write(text)
-    except Exception as e:
-        print(f"[LOG ERROR] {e}")
-
     try:
         r = requests.post(url, headers=headers, json=payload, timeout=30)
         print("Status Code:", r.status_code)

@@ -68,12 +68,17 @@ def get_person_records(video_path, weights='yolov7-w6-pose.pt', show=False):
                 break
 
     if is_person_present:
-        records.append((start_frame, frame_count))
+        end_frame = frame_count
+        if (end_frame - start_frame) >= 15:
+            records.append((start_frame, end_frame))
 
     cap.release()
     if show:
         cv2.destroyAllWindows()
-    return records
+    
+    # Final filter: ensure any remaining segments in records are valid length
+    final_records = [r for r in records if (r[1] - r[0]) >= 15]
+    return final_records
 
 if __name__ == "__main__":
     video_to_test = 'video/EDC.mp4'

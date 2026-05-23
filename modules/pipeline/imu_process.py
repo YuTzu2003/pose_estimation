@@ -57,22 +57,23 @@ def process_imu_data(file_path, output_dir, record_id):
             std_df['Time'] = df.index
             
         found_acc = all(acc_map.values())
-        if found_acc:
-            std_df['Acc_X'] = pd.to_numeric(df[acc_map['x']], errors='coerce')
-            std_df['Acc_Y'] = pd.to_numeric(df[acc_map['y']], errors='coerce')
-            std_df['Acc_Z'] = pd.to_numeric(df[acc_map['z']], errors='coerce')
-            std_df['Acc_Res'] = np.sqrt(std_df['Acc_X']**2 + std_df['Acc_Y']**2 + std_df['Acc_Z']**2)
-            
+        if not found_acc:
+            return None, "上傳IMU資料不符合 (未偵測到必要之加速度 X, Y, Z 欄位)"
+ 
+        std_df['Acc_X'] = pd.to_numeric(df[acc_map['x']], errors='coerce')
+        std_df['Acc_Y'] = pd.to_numeric(df[acc_map['y']], errors='coerce')
+        std_df['Acc_Z'] = pd.to_numeric(df[acc_map['z']], errors='coerce')
+        
+        # Calculate Resultant Acceleration
+        std_df['Acc_Res'] = np.sqrt(std_df['Acc_X']**2 + std_df['Acc_Y']**2 + std_df['Acc_Z']**2)
+        
         found_gyr = all(gyr_map.values())
         if found_gyr:
             std_df['Gyr_X'] = pd.to_numeric(df[gyr_map['x']], errors='coerce')
             std_df['Gyr_Y'] = pd.to_numeric(df[gyr_map['y']], errors='coerce')
             std_df['Gyr_Z'] = pd.to_numeric(df[gyr_map['z']], errors='coerce')
 
-        if not found_acc and not found_gyr:
-            return None, "Could not identify standard IMU columns"
- 
-        std_csv_filename = f"{record_id}_imu_std.csv"
+        std_csv_filename = f"{record_id}_imu.csv"
         std_csv_path = os.path.join(output_dir, std_csv_filename)
         std_df.to_csv(std_csv_path, index=False)
 
