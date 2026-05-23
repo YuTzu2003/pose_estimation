@@ -159,7 +159,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('detailNote').textContent = record.note;
                 
                 const video = document.getElementById('detailVideo');
-                video.src = `/static/${record.result_video || record.original_video}`;
+                const videoPath = record.result_video || record.original_video;
+                video.innerHTML = '';
+                video.setAttribute('playsinline', '');
+                video.setAttribute('webkit-playsinline', '');
+                const source = document.createElement('source');
+                source.src = `/media/${videoPath}`;
+                source.type = videoPath.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/x-msvideo';
+                video.appendChild(source);
+                video.load();
                 
                 document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
                 

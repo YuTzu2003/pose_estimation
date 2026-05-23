@@ -2,6 +2,7 @@ import cv2
 import pandas as pd
 import numpy as np
 import os
+from modules.pipeline.video_compat import make_ios_playable_mp4
 
 def run_step(input_video, peaks_csv, output_video, ratio=1.0, person_records=None, progress_callback=None):
     csv_file = peaks_csv
@@ -116,6 +117,7 @@ def run_step(input_video, peaks_csv, output_video, ratio=1.0, person_records=Non
 
     cap.release()
     out.release()
+    make_ios_playable_mp4(output_video)
     print(f"Processed video saved as: {output_video}")
     return os.path.basename(output_video)
 

@@ -9,6 +9,7 @@ from utils.datasets import letterbox
 from utils.plots import output_to_keypoint, plot_skeleton_kpts
 from utils.general import non_max_suppression_kpt
 from modules.pipeline.backbone_detect import load_model
+from modules.pipeline.video_compat import make_ios_playable_mp4
 
 # 計算三點形成的角度
 def calculate_angle(a, b, c):
@@ -184,5 +185,6 @@ def run_pose_analysis(source_path, output_dir, record_id, person_records, enable
     cap.release()
     out.release()
     csv_file.close()
+    make_ios_playable_mp4(result_video_path)
     
     return result_video_filename, csv_filename

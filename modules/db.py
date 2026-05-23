@@ -7,11 +7,10 @@ class ConnectionPool:
         self.pool = Queue(maxsize=size)
         self.conn_str = (
             'DRIVER={ODBC Driver 17 for SQL Server};'
-            'SERVER=127.0.0.1;'
-            'port=1433;' 
+            'SERVER=127.0.0.1,1433;'
             'DATABASE=MotionAnalysis;'
-            'UID=MotionUser;'           
-            'PWD=MotionUser;'      
+            'UID=MotionUser;'
+            'PWD=MotionUser;'
             'TrustServerCertificate=yes;'
         )
         self.current_size = 0

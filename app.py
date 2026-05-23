@@ -3,8 +3,10 @@ import uuid
 import logging
 import sys
 import time
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from werkzeug.utils import secure_filename
+import mimetypes
+import re
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, Response, abort
+from werkzeug.utils import secure_filename, safe_join
 from modules.db import get_conn, release_conn
 from service.player import player_bp
 from service.record import record_bp
@@ -13,6 +15,7 @@ from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis
 from modules.pipeline.peak_smooth import peak_smooth
 from modules.pipeline.step_metrics import run_step
+from modules.pipeline.video_compat import make_ios_playable_mp4
 
 import threading
 
@@ -55,6 +58,63 @@ def index_html():
 @app.route('/records.html')
 def records():
     return render_template('records.html')
+
+@app.route('/media/<path:filename>')
+def media(filename):
+    full_path = safe_join(app.static_folder, filename)
+    if not full_path or not os.path.isfile(full_path):
+        abort(404)
+
+    lower_name = os.path.basename(full_path).lower()
+    is_generated_video = (
+        full_path.lower().endswith('.mp4')
+        and any(suffix in lower_name for suffix in ('_result.mp4', '_gait.mp4', '_gait_v2.mp4'))
+    )
+    if is_generated_video:
+        make_ios_playable_mp4(full_path)
+
+    mimetype = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
+    if full_path.lower().endswith('.mp4'):
+        mimetype = 'video/mp4'
+
+    file_size = os.path.getsize(full_path)
+    range_header = request.headers.get('Range')
+    if not range_header:
+        response = send_file(full_path, mimetype=mimetype, conditional=True)
+        response.headers['Accept-Ranges'] = 'bytes'
+        return response
+
+    match = re.match(r'bytes=(\d*)-(\d*)', range_header)
+    if not match:
+        abort(416)
+
+    start_text, end_text = match.groups()
+    if start_text == '' and end_text == '':
+        abort(416)
+
+    if start_text == '':
+        length = int(end_text)
+        start = max(file_size - length, 0)
+        end = file_size - 1
+    else:
+        start = int(start_text)
+        end = int(end_text) if end_text else file_size - 1
+
+    if start >= file_size or end < start:
+        abort(416)
+
+    end = min(end, file_size - 1)
+    length = end - start + 1
+
+    with open(full_path, 'rb') as video_file:
+        video_file.seek(start)
+        data = video_file.read(length)
+
+    response = Response(data, 206, mimetype=mimetype, direct_passthrough=True)
+    response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+    response.headers['Accept-Ranges'] = 'bytes'
+    response.headers['Content-Length'] = str(length)
+    return response
 
 @app.route('/compare.html')
 def compare():
@@ -310,4 +370,7 @@ def line_notify():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    host = os.environ.get("FLASK_HOST", "0.0.0.0")
+    port = int(os.environ.get("FLASK_PORT", "51005"))
+    print(f"Starting server on http://{host}:{port}")
+    app.run(host=host, port=port, debug=True)
