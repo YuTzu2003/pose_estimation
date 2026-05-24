@@ -1,0 +1,17 @@
+誌宸
+find_sensor.py --純找sensor
+xsens_record_v2.py --紀錄xsens數據
+
+main.py --目前最完整
+
+0523test.py --收集數據應該是怪怪的
+
+gopro_control.py --寫死的藍芽
+
+usb_transfer_test.py --單純只有靠usb收集數據
+
+xsens_collect_test.py --單純只有收集xsens，是對的
+
+
+
+

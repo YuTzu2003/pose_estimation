@@ -135,7 +135,7 @@ class XsensManager(QThread):
         self.is_logging = False
         self.should_stop = False
         self._is_connected = False
-        self.update_rate = 120 # 依照診斷工具改為 120Hz
+        self.update_rate = 100
         self.radio_channel = 18
         self.mode = "connect"
 
@@ -289,20 +289,16 @@ class XsensManager(QThread):
                         if cb.index not in start_counters:
                             start_counters[cb.index] = current_counter
                         timestamp_s = (current_counter - start_counters[cb.index]) / float(self.update_rate)
-                        
-                        q   = packet.orientationQuaternion()
+                        q = packet.orientationQuaternion()
                         acc = packet.calibratedAcceleration() 
                         gyr = packet.calibratedGyroscopeData()
                         mag = packet.calibratedMagneticField()
-
-                        # 依照 test_only_xsens.py 的正確數據對應：
-                        # acc[0]=X, acc[1]=Y, acc[2]=Z (不進行對調)
                         writers[cb.index].writerow([
                             current_counter, f"{timestamp_s:.3f}",
-                            q[0], q[1], q[2], q[3],
-                            acc[0], acc[1], acc[2],
-                            gyr[0], gyr[1], gyr[2],
-                            mag[0], mag[1], mag[2],
+                            q[0], q[2], q[1], q[3],
+                            acc[1], acc[0], acc[2],
+                            gyr[1], gyr[0], gyr[2],
+                            mag[1], mag[0], mag[2],
                         ])
                     except: continue
                 time.sleep(0.001)
