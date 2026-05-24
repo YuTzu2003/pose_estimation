@@ -533,10 +533,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }).then(() => alert('專案已保存並發送通知！'));
   };
 
-  document.getElementById('previewSpeed').onchange = () => {
-    const v = document.getElementById('previewVideo'); if (v) v.playbackRate = parseFloat(document.getElementById('previewSpeed').value);
-  };
-
   async function loadImuChart() {
     if (!currentAnalysis.record_id) return;
     const type = document.querySelector('input[name="imuType"]:checked').value;
@@ -556,4 +552,8 @@ document.addEventListener('DOMContentLoaded', () => {
     imuBtn.onclick = () => { bsImu.show(); loadImuChart(); };
     document.querySelectorAll('input[name="imuType"]').forEach(r => r.onchange = loadImuChart);
   }
+
+  document.getElementById('previewSpeed').onchange = () => {
+    const v = document.getElementById('previewVideo'); if (v) v.playbackRate = parseFloat(document.getElementById('previewSpeed').value);
+  };
 });

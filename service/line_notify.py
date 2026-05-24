@@ -27,7 +27,7 @@ def line_notify():
         completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         message = (
-            f"\n【運動表現分析報告 - 任務完成通知】\n"
+            f"【運動表現分析報告 - 任務完成通知】\n"
             f"--------------------------------\n"
             f"● 選手姓名：{athlete_name}\n"
             f"● 測試場次：{session_name}\n"

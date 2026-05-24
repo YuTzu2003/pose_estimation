@@ -145,6 +145,17 @@ def get_record_details(record_id):
                             entry[col] = float(r[col.replace('_', ' ')])
                     imu_data.append(entry)
 
+        # Read analysis_info.json
+        analysis_info = {}
+        json_path = os.path.join(abs_project_dir, 'analysis_info.json')
+        if os.path.exists(json_path):
+            try:
+                import json
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    analysis_info = json.load(f)
+            except Exception as e:
+                print(f"Error reading analysis_info.json: {e}")
+
         record_data = {
             'id': row[0],
             'player_id': row[1],
@@ -163,7 +174,8 @@ def get_record_details(record_id):
             'scale_reference': row[9],
             'scale_pixels': row[10],
             'pose_data': pose_data,
-            'imu_data': imu_data
+            'imu_data': imu_data,
+            'modules': analysis_info.get('modules', [])
         }
 
         return jsonify(record_data), 200

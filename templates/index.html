@@ -246,7 +246,7 @@
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body p-4 bg-light">
-            <div class="d-flex justify-content-center gap-2 mb-4">
+            <div class="d-flex justify-content-center flex-wrap gap-2 mb-4">
               <div class="btn-group btn-group-sm" role="group">
                 <input type="radio" class="btn-check" name="imuType" id="typeAccRes" value="acc_res" checked>
                 <label class="btn btn-outline-dark" for="typeAccRes">合加速度 (Acc Res)</label>
@@ -254,8 +254,24 @@
                 <input type="radio" class="btn-check" name="imuType" id="typeAccXYZ" value="acc_xyz">
                 <label class="btn btn-outline-dark" for="typeAccXYZ">加速度 (Acc XYZ)</label>
                 
+                <input type="radio" class="btn-check" name="imuType" id="typeAccX" value="acc_x">
+                <label class="btn btn-outline-dark" for="typeAccX">Acc X</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeAccY" value="acc_y">
+                <label class="btn btn-outline-dark" for="typeAccY">Acc Y</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeAccZ" value="acc_z">
+                <label class="btn btn-outline-dark" for="typeAccZ">Acc Z</label>
+              </div>
+
+              <div class="btn-group btn-group-sm" role="group">
                 <input type="radio" class="btn-check" name="imuType" id="typeGyrXYZ" value="gyr_xyz">
                 <label class="btn btn-outline-dark" for="typeGyrXYZ">角速度 (Gyr XYZ)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrX" value="gyr_x">
+                <label class="btn btn-outline-dark" for="typeGyrX">Gyr X</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrY" value="gyr_y">
+                <label class="btn btn-outline-dark" for="typeGyrY">Gyr Y</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrZ" value="gyr_z">
+                <label class="btn btn-outline-dark" for="typeGyrZ">Gyr Z</label>
               </div>
             </div>
             
@@ -320,6 +336,12 @@
         <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
       </div>
     </section>
+
+
+
+
+    <!-- ===== REMOVED OLD EDIT SECTION ===== -->
+
   </main>
 
   <!-- Measurement Modal -->

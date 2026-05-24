@@ -94,6 +94,12 @@ def compare_charts():
             else: # IMU
                 if m == 'acc_xyz': return ['Acc_X', 'Acc_Y', 'Acc_Z']
                 if m == 'gyr_xyz': return ['Gyr_X', 'Gyr_Y', 'Gyr_Z']
+                if m == 'acc_x': return ['Acc_X']
+                if m == 'acc_y': return ['Acc_Y']
+                if m == 'acc_z': return ['Acc_Z']
+                if m == 'gyr_x': return ['Gyr_X']
+                if m == 'gyr_y': return ['Gyr_Y']
+                if m == 'gyr_z': return ['Gyr_Z']
                 return ['Acc_Res'] if 'Acc_Res' in df.columns else []
 
         cols_a = get_cols(df_a, metric, compare_type)

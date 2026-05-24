@@ -15,7 +15,6 @@ from modules.pipeline.step_metrics import run_step
 from modules.pipeline.imu_process import process_imu_data
 
 analysis_bp = Blueprint('analysis', __name__)
-
 progress_data = {}
 progress_lock = threading.Lock()
 
@@ -170,22 +169,42 @@ def analyze():
     result_video_path = None
     pose_csv_path = None
     peak_data_list = []
+    
+    # 檢查是否可以 Smart Skip
+    existing_pose_csv = os.path.join(project_dir, f"{record_id}_pose.csv")
+    existing_pose_video = os.path.join(project_dir, f"{record_id}_pose.mp4")
+    can_skip_pose = os.path.exists(existing_pose_csv) and os.path.exists(existing_pose_video)
+    
+    needs_tracking = 'track' in selected_modules
+    
+    # 如果有要求重新畫軌跡 (track)，或者目前沒有現成的骨架資料，就必須重跑 pose_analysis
+    force_rerun_pose = needs_tracking or not can_skip_pose
+
     try:
         if person_records:
             enable_track = 'track' in selected_modules
-            update_progress(job_id, 10, "開始骨幹分析...")
-            def pose_progress(p, s):
-                update_progress(job_id, 10 + p * 0.5, s)
-            res_video, res_csv = run_pose_analysis(
-                abs_video_path, project_dir, record_id, 
-                person_records, enable_track=enable_track,
-                progress_callback=pose_progress
-            )
+            
+            res_video = f"{record_id}_pose.mp4"
+            res_csv = f"{record_id}_pose.csv"
+            
+            if force_rerun_pose:
+                update_progress(job_id, 10, "開始骨幹分析 (推論中)...")
+                def pose_progress(p, s):
+                    update_progress(job_id, 10 + p * 0.5, s)
+                res_video, res_csv = run_pose_analysis(
+                    abs_video_path, project_dir, record_id, 
+                    person_records, enable_track=enable_track,
+                    progress_callback=pose_progress
+                )
+            else:
+                update_progress(job_id, 50, "偵測到現存骨架資料且無需重新繪製軌跡，跳過推論...")
+
             result_video_path = f"jobs/{record_id}/{res_video}"
             pose_csv_path = f"jobs/{record_id}/{res_csv}"
             pose_csv_abs = os.path.join(project_dir, res_csv)
             peaks_csv_name = f"{record_id}_peaks.csv"
             peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
+            
             if peak_smooth(pose_csv_abs, peaks_csv_abs):
                 try:
                     peak_df = pd.read_csv(peaks_csv_abs)
@@ -201,6 +220,7 @@ def analyze():
                         peak_data_list.append(entry)
                 except Exception as e:
                     print(f"Peak data processing error: {e}")
+            
             if 'gait' in selected_modules:
                 update_progress(job_id, 70, "開始生成步頻影片...")
                 gait_video_name = f"{record_id}_result.mp4"
@@ -211,6 +231,7 @@ def analyze():
                     ratio = ref_dist / px_dist if px_dist != 0 else 1.0
                 except:
                     ratio = 1.0
+                
                 input_video_for_gait = os.path.join(project_dir, res_video)
                 def step_progress(p, s):
                     update_progress(job_id, 70 + p * 0.25, s)
