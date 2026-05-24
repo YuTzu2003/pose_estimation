@@ -58,25 +58,22 @@ document.addEventListener('DOMContentLoaded', () => {
     recordA.addEventListener('change', () => updateVideoPreview(recordA, 'videoContainerA'));
     recordB.addEventListener('change', () => updateVideoPreview(recordB, 'videoContainerB'));
 
-    runCompare.addEventListener('click', async () => {
+    let currentOffset = 0;
+    const compareControls = document.getElementById('compareControls');
+    const offsetDisplay = document.getElementById('offsetDisplay');
+
+    async function requestComparison(alignMax = false) {
         const idA = recordA.value;
         const idB = recordB.value;
-
-        if (!idA || !idB) {
-            alert("請先選擇兩組紀錄進行比對。");
-            return;
-        }
+        const type = compareType.value;
+        const joint = document.getElementById('jointSelect').value;
+        const imuMetric = document.getElementById('imuMetricSelect').value;
+        const selectedMetric = (type === 'skeleton') ? joint : imuMetric;
 
         runCompare.disabled = true;
-        runCompare.textContent = "正在產製圖表...";
+        if (!alignMax) runCompare.textContent = "正在產製圖表...";
 
         try {
-            const type = compareType.value;
-            const joint = document.getElementById('jointSelect').value;
-            const imuMetric = document.getElementById('imuMetricSelect').value;
-            
-            const selectedMetric = (type === 'skeleton') ? joint : imuMetric;
-
             const response = await fetch('/api/compare_charts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -84,24 +81,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     id_a: idA,
                     id_b: idB,
                     type: type,
-                    metric: selectedMetric
+                    metric: selectedMetric,
+                    offset: currentOffset,
+                    align_max: alignMax
                 })
             });
 
             const result = await response.json();
             
             if (response.ok) {
-                // Update all 3 images
                 document.getElementById('chartImgA').src = result.chart_a;
                 document.getElementById('chartImgB').src = result.chart_b;
                 document.getElementById('chartImgMerged').src = result.merged;
+                
+                currentOffset = result.offset;
+                offsetDisplay.textContent = `Offset: ${currentOffset}`;
 
                 cmpResult.hidden = false;
-                cmpResult.scrollIntoView({ behavior: 'smooth' });
+                compareControls.style.setProperty('display', 'flex', 'important');
+                if (!alignMax) cmpResult.scrollIntoView({ behavior: 'smooth' });
             } else {
                 alert("產製比對圖表失敗: " + result.error);
             }
-
         } catch (err) {
             console.error("Compare error:", err);
             alert("與伺服器連線時發生錯誤。");
@@ -109,5 +110,28 @@ document.addEventListener('DOMContentLoaded', () => {
             runCompare.disabled = false;
             runCompare.textContent = "執行比對 / RUN COMPARE";
         }
+    }
+
+    runCompare.addEventListener('click', () => {
+        if (!recordA.value || !recordB.value) {
+            alert("請先選擇兩組紀錄進行比對。");
+            return;
+        }
+        currentOffset = 0;
+        requestComparison();
     });
+
+    document.getElementById('btnShiftLeft').onclick = () => {
+        currentOffset -= 1;
+        requestComparison();
+    };
+
+    document.getElementById('btnShiftRight').onclick = () => {
+        currentOffset += 1;
+        requestComparison();
+    };
+
+    document.getElementById('btnAlignMax').onclick = () => {
+        requestComparison(true);
+    };
 });

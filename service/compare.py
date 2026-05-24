@@ -6,7 +6,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import io
 import base64
-import numpy as np
 
 matplotlib.use('Agg')
 compare_bp = Blueprint('compare_service', __name__)
@@ -21,7 +20,7 @@ def get_project_path(record_id):
     finally:
         release_conn(conn)
 
-def generate_base64_plot(df_list, labels, title, ylabel, columns_list, colors=None, dash_styles=None):
+def generate_base64_plot(df_list, labels, title, ylabel, columns_list, colors=None, dash_styles=None, offsets=None):
     plt.style.use('default')
     plt.figure(figsize=(10, 4))
     
@@ -32,10 +31,11 @@ def generate_base64_plot(df_list, labels, title, ylabel, columns_list, colors=No
             color = colors[i] if colors else None
             dash = dash_styles[i] if dash_styles else None
             cols = columns_list[i]
+            offset = offsets[i] if offsets else 0
             
             for col in cols:
                 if col in df.columns:
-                    plt.plot(df.index, df[col], label=f"{label} ({col})", color=color, linestyle=dash or '-')
+                    plt.plot(df.index + offset, df[col], label=f"{label} ({col})", color=color, linestyle=dash or '-')
                     any_plotted = True
 
     if not any_plotted:
@@ -61,8 +61,10 @@ def compare_charts():
         id_b = data.get('id_b')
         compare_type = data.get('type') # 'skeleton' or 'imu'
         metric = data.get('metric')
+        offset = int(data.get('offset', 0))
+        align_max = data.get('align_max', False)
 
-        print(f"[DEBUG] Comparing {id_a} vs {id_b}, type={compare_type}, metric={metric}")
+        print(f"[DEBUG] Comparing {id_a} vs {id_b}, type={compare_type}, metric={metric}, offset={offset}, align_max={align_max}")
 
         folder_a = get_project_path(id_a)
         folder_b = get_project_path(id_b)
@@ -97,20 +99,30 @@ def compare_charts():
         cols_a = get_cols(df_a, metric, compare_type)
         cols_b = get_cols(df_b, metric, compare_type)
 
+        # Handle Align Max logic
+        if align_max:
+            idx_max_a = 0
+            idx_max_b = 0
+            if df_a is not None and not df_a.empty and cols_a:
+                idx_max_a = df_a[cols_a[0]].idxmax()
+            if df_b is not None and not df_b.empty and cols_b:
+                idx_max_b = df_b[cols_b[0]].idxmax()
+            offset = int(idx_max_a - idx_max_b)
+
         ylabel = "Angle (deg)" if compare_type == 'skeleton' else "Value"
         
         # 1. Base Chart A
         chart_a = generate_base64_plot([df_a], ["Base"], f"Record A: {id_a}", ylabel, [cols_a], colors=['#171717'])
         # 2. Control Chart B
         chart_b = generate_base64_plot([df_b], ["Control"], f"Record B: {id_b}", ylabel, [cols_b], colors=['#dc3545'])
-        # 3. Merged Chart
-        merged = generate_base64_plot([df_a, df_b], ["A", "B"], "Merged Comparison View", ylabel, [cols_a, cols_b], 
-                                      colors=['#171717', '#dc3545'], dash_styles=['-', '--'])
+        # 3. Merged Chart with Offset
+        merged = generate_base64_plot([df_a, df_b], ["A", "B"], "Merged Comparison View", ylabel, [cols_a, cols_b], colors=['#171717', '#dc3545'], dash_styles=['-', '--'], offsets=[0, offset])
 
         return jsonify({
             'chart_a': f"data:image/png;base64,{chart_a}",
             'chart_b': f"data:image/png;base64,{chart_b}",
-            'merged': f"data:image/png;base64,{merged}"
+            'merged': f"data:image/png;base64,{merged}",
+            'offset': offset
         })
 
     except Exception as e:

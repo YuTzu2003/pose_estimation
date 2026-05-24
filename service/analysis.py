@@ -4,6 +4,7 @@ import time
 import pandas as pd
 import numpy as np
 import threading
+import cv2
 from flask import Blueprint, request, jsonify, current_app
 from modules.db import get_conn, release_conn
 from modules.pipeline.backbone_detect import get_person_records
@@ -56,8 +57,7 @@ def upload():
         abs_video_path = os.path.join(project_dir, filename)
         video_file.save(abs_video_path)
         orig_video_db_path = f"jobs/{record_id}/{filename}"
-        try:
-            import cv2
+        try:        
             cap_temp = cv2.VideoCapture(abs_video_path)
             fps = cap_temp.get(cv2.CAP_PROP_FPS)
             cap_temp.release()
@@ -66,6 +66,7 @@ def upload():
         except Exception as e:
             print(f"Video detection error: {e}")
             update_progress(job_id, 60, f"偵測失敗: {str(e)}")
+            
     if imu_file and imu_file.filename != '':
         imu_ext = os.path.splitext(imu_file.filename)[1] or ".csv"
         temp_imu_filename = f"{record_id}_temp_imu{imu_ext}"
