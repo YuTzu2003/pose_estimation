@@ -9,13 +9,35 @@ line_notify_bp = Blueprint('line_notify', __name__)
 def line_notify():
     data = request.json
     record_id = data.get('record_id')
-    session_name = data.get('session_name')
+    athlete_name = data.get('athlete_name', '未知選手')
+    session_name = data.get('session_name', '未指定場次')
+    modules = data.get('modules', [])
     
     if not record_id:
         return jsonify({'error': 'Missing record_id'}), 400
         
     try:
-        result = send_save_notification(record_id, session_name or "未指定場次")
+        # Format modules string
+        module_map = {'angle': '關節角度', 'track': '點位追蹤', 'gait': '步幅與速度'}
+        module_names = [module_map.get(m, m) for m in modules]
+        analysis_str = "、".join(module_names) if module_names else "基礎分析"
+
+        # Current timestamp
+        from datetime import datetime
+        completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        message = (
+            f"\n【運動表現分析報告 - 任務完成通知】\n"
+            f"--------------------------------\n"
+            f"● 選手姓名：{athlete_name}\n"
+            f"● 測試場次：{session_name}\n"
+            f"● 分析項目：{analysis_str}\n"
+            f"● 完成時間：{completion_time}\n"
+            f"--------------------------------\n"
+            f"分析專案已成功保存至系統。"
+        )
+        
+        result = broadcast_line_message(message)
         return jsonify({'success': True, 'result': result})
     except Exception as e:
         print(f"LINE notification error: {e}")

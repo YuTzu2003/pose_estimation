@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     video.innerHTML = '';
 
                     if (videoDirectLink) {
-                        videoDirectLink.innerHTML = `<a href="/media/${videoPath}" target="_blank" class="text-decoration-none" download>點此另開視窗觀看或下載影片</a>`;
+                        videoDirectLink.innerHTML = `<a href="/media/${videoPath}" target="_blank" class="btn btn-outline-dark btn-sm px-3" download>觀看或下載影片</a>`;
                     }                    
                     // Add attributes for mobile/inline playback
                     video.setAttribute('playsinline', '');

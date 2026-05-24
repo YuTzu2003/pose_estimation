@@ -69,27 +69,21 @@
         <div class="col-lg-7">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">影片檔案 / VIDEO</label>
-              <div class="file-drop" id="fileDrop" style="min-height: 120px;">
+              <label class="form-label small text-muted mono">VIDEO FILE</label>
+              <div class="file-drop p-3 border rounded bg-light text-center cursor-pointer hover-shadow" id="fileDrop" onclick="document.getElementById('fileInput').click()" style="cursor: pointer;">
                 <input type="file" id="fileInput" name="video" accept="video/*" hidden />
-                <div class="file-drop-inner">
-                  <div class="text-center mt-2 px-3">
-                    <button class="btn btn-sm btn-outline-dark" type="button" onclick="document.getElementById('fileInput').click()">選擇影片</button>
-                    <div class="mono x-small mt-2" id="fileName" style="color:var(--muted)">未選取</div>
-                  </div>
-                </div>
+                <i class="bi bi-camera-reels fs-4 text-muted mb-1 d-block"></i>
+                <span class="small d-block fw-bold text-dark">上傳影片分析</span>
+                <span class="x-small text-muted mono mt-1 d-block text-truncate px-2" id="fileName">未選取檔案</span>
               </div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">IMU 數據 / IMU DATA (CSV/XLSX)</label>
-              <div class="file-drop" id="imuDrop" style="min-height: 120px;">
+              <label class="form-label small text-muted mono">IMU DATA (CSV/XLSX)</label>
+              <div class="file-drop p-3 border rounded bg-light text-center cursor-pointer hover-shadow" id="imuDrop" onclick="document.getElementById('imuInput').click()" style="cursor: pointer;">
                 <input type="file" id="imuInput" name="imu_file" accept=".csv, .xls, .xlsx" hidden />
-                <div class="file-drop-inner">
-                  <div class="text-center mt-2 px-3">
-                    <button class="btn btn-sm btn-outline-dark" type="button" onclick="document.getElementById('imuInput').click()">選擇數據</button>
-                    <div class="mono x-small mt-2" id="imuFileName" style="color:var(--muted)">未選取</div>
-                  </div>
-                </div>
+                <i class="bi bi-activity fs-4 text-muted mb-1 d-block"></i>
+                <span class="small d-block fw-bold text-dark">上傳感測器數據</span>
+                <span class="x-small text-muted mono mt-1 d-block text-truncate px-2" id="imuFileName">未選取檔案</span>
               </div>
             </div>
           </div>
@@ -112,13 +106,28 @@
               <label class="form-label">備註 / NOTE</label>
               <textarea class="form-control" id="note" name="note" rows="2" placeholder="風向、場地、設備條件等" required></textarea>
             </div>
-            <div class="col-sm-6">
-              <label class="form-label">比例尺參考距離 (公尺) / REFERENCE DISTANCE (m)</label>
-              <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" required />
+            <div class="col-12">
+              <label class="form-label">比例尺預設 / CALIBRATION PRESETS</label>
+              <select class="form-select form-select-sm mb-2" id="scalePreset">
+                <option value="custom" selected>自定義輸入 / Manual Input</option>
+                <option value="preset1">跑道標準配置 (距離 5.85m / 高度 1.02m)</option>
+              </select>
+              <div id="presetInfo" class="x-small text-muted mono p-2 border rounded bg-light mb-2 d-none">
+                <!-- Filled by JS -->
+              </div>
             </div>
             <div class="col-sm-6">
-              <label class="form-label">對應圖片像素 / IMAGE PIXELS</label>
-              <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" required />
+              <label class="form-label small">比例尺參考距離 (m) / REF DIST</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" required />
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small">對應圖片像素 / IMAGE PIXELS</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" required />
+                <button class="btn btn-dark px-3" type="button" id="autoMeasureBtn" style="display: none;">測量</button>
+              </div>
             </div>
           </div>
         </div>
@@ -281,18 +290,24 @@
       </div>
 
       <div class="table-responsive">
-        <table class="table table-hover align-middle">
-          <thead>
+        <table class="table table-bordered table-hover align-middle table-sm">
+          <thead class="table-light">
             <tr>
-              <th style="width:80px">#</th>
-              <th>時間 (s)</th>
-              <th>FOOT</th>
-              <th>X (px)</th>
-              <th>Y (px)</th>
-              <th style="width:100px">ACTION</th>
+              <th rowspan="2" class="text-center" style="width:50px">#</th>
+              <th colspan="3" class="text-center">右腳數據 / RIGHT FOOT</th>
+              <th colspan="3" class="text-center">左腳數據 / LEFT FOOT</th>
+              <th rowspan="2" class="text-center" style="width:120px">ACTION</th>
+            </tr>
+            <tr>
+              <th class="text-center">Frame</th>
+              <th class="text-center">X (px)</th>
+              <th class="text-center">Y (px)</th>
+              <th class="text-center">Frame</th>
+              <th class="text-center">X (px)</th>
+              <th class="text-center">Y (px)</th>
             </tr>
           </thead>
-          <tbody id="csvBody"><!-- filled by JS --></tbody>
+          <tbody id="csvBody" class="mono small"><!-- filled by JS --></tbody>
         </table>
       </div>
 
@@ -304,6 +319,54 @@
       </div>
     </section>
   </main>
+
+  <!-- Measurement Modal -->
+  <div class="modal fade" id="measureModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-dark text-white border-0 py-3">
+          <h5 class="modal-title mono fs-6">自動像素測量</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-0 bg-dark position-relative" style="min-height: 500px;">
+          <!-- Canvas for drawing -->
+          <div class="d-flex align-items-center justify-content-center overflow-hidden" style="height: 600px; background: #000;">
+            <canvas id="measureCanvas" style="cursor: crosshair; max-width: 100%; max-height: 100%;"></canvas>
+          </div>
+          
+          <!-- Controls Overlay -->
+          <div class="position-absolute bottom-0 start-0 end-0 p-3 bg-dark bg-opacity-75 text-white">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <input type="range" class="form-range flex-grow-1" id="measureSlider" min="0" max="100" value="0">
+              <span class="mono small text-nowrap" id="measureFrameText">Frame: 0 / 0</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-light" id="measurePrevFrame"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light" id="measureNextFrame"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light ms-2" id="measureClearBtn">清除點位 / CLEAR</button>
+              </div>
+              <div class="d-flex align-items-center gap-3">
+                <div class="mono small">
+                  像素值 / PIXELS: <span id="measureResultText" class="fw-bold text-warning">0.00</span>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm px-4" id="measureConfirmBtn">確認</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Loading Spinner -->
+          <div id="measureLoading" class="position-absolute top-0 start-0 end-0 bottom-0 d-flex flex-column align-items-center justify-content-center bg-dark bg-opacity-75 d-none">
+            <div class="spinner-border text-light mb-2" role="status"></div>
+            <div class="text-light mono small">LOADING VIDEO FRAME...</div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light py-2 small mono text-muted justify-content-start">
+          <i class="bi bi-info-circle me-1"></i> 操作說明：在畫面上點擊兩點來測量距離。右鍵點擊可取消上一個點。
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}
 
 {% block scripts %}

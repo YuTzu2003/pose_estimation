@@ -1,9 +1,33 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Initialize Bootstrap Popovers
+  // --- 1. State & Global Variables ---
+  let currentAnalysis = {
+    record_id: null,
+    peak_data: [],
+    scale_info: null,
+    person_records: null,
+    fps: 30
+  };
+
+  const autoMeasureBtn = document.getElementById('autoMeasureBtn');
+  const scalePreset = document.getElementById('scalePreset');
+  const scaleRefInput = document.getElementById('scale_reference');
+  const scalePxInput = document.getElementById('scale_pixels');
+  const presetInfo = document.getElementById('presetInfo');
+
+  const toggleAutoMeasureBtn = () => {
+    if (autoMeasureBtn && scalePreset) {
+      const hasLocalFile = fileInput && fileInput.files.length > 0;
+      if (scalePreset.value === 'custom' && (currentAnalysis.record_id || hasLocalFile)) {
+        autoMeasureBtn.style.display = 'inline-block';
+      } else {
+        autoMeasureBtn.style.display = 'none';
+      }
+    }
+  };
+
+  // --- 2. UI Components & Event Listeners ---
   const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'))
-  popoverTriggerList.map(function (popoverTriggerEl) {
-    return new bootstrap.Popover(popoverTriggerEl)
-  })
+  popoverTriggerList.map(function (popoverTriggerEl) { return new bootstrap.Popover(popoverTriggerEl) })
 
   const fileInput = document.getElementById('fileInput');
   const fileNameDisplay = document.getElementById('fileName');
@@ -14,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const uploadForm = document.getElementById('uploadForm');
 
   if (fileInput && fileNameDisplay) {
-    const updateFileName = () => {
+    fileInput.addEventListener('change', () => {
       if (fileInput.files.length > 0) {
         fileNameDisplay.textContent = fileInput.files[0].name;
         fileNameDisplay.style.color = 'var(--fg)';
@@ -22,33 +46,14 @@ document.addEventListener('DOMContentLoaded', () => {
         fileNameDisplay.textContent = '未選取';
         fileNameDisplay.style.color = 'var(--muted)';
       }
-    };
-    fileInput.addEventListener('change', updateFileName);
+      toggleAutoMeasureBtn();
+    });
   }
 
-  if (imuInput && imuFileNameDisplay) {
-    const updateImuFileName = () => {
-      if (imuInput.files.length > 0) {
-        imuFileNameDisplay.textContent = imuInput.files[0].name;
-        imuFileNameDisplay.style.color = 'var(--fg)';
-      } else {
-        imuFileNameDisplay.textContent = '未選取';
-        imuFileNameDisplay.style.color = 'var(--muted)';
-      }
-    };
-    imuInput.addEventListener('change', updateImuFileName);
-  }
-
-  const setupDropzone = (dropzone, input, callback) => {
+  const setupDropzone = (dropzone, input) => {
     if (!dropzone) return;
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.style.borderColor = 'var(--fg)';
-    });
-    dropzone.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      dropzone.style.borderColor = 'var(--border)';
-    });
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--fg)'; });
+    dropzone.addEventListener('dragleave', (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--border)'; });
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropzone.style.borderColor = 'var(--border)';
@@ -58,540 +63,356 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   };
-
   setupDropzone(fileDrop, fileInput);
   setupDropzone(imuDrop, imuInput);
 
-  // 全域變數儲存當前分析資訊
-  let currentAnalysis = {
-    record_id: null,
-    peak_data: [],
-    scale_info: null,
-    person_records: null,
-    fps: 30
+  const calibrationPresets = {
+    preset1: {
+      ref_dist: 0.9,
+      pixels: 221,
+      description: "攝影機離跑道: 5.85m | 高度: 1.02m | 垂直角距離: 1m"
+    }
   };
 
+  if (scalePreset) {
+    scalePreset.addEventListener('change', () => {
+      const val = scalePreset.value;
+      if (val === 'custom') {
+        presetInfo.classList.add('d-none');
+        scaleRefInput.readOnly = false;
+        scalePxInput.readOnly = false;
+      } else if (calibrationPresets[val]) {
+        const p = calibrationPresets[val];
+        scaleRefInput.value = p.ref_dist;
+        scalePxInput.value = p.pixels;
+        scaleRefInput.readOnly = true;
+        scalePxInput.readOnly = true;
+        presetInfo.innerHTML = `<i class="bi bi-info-circle me-1"></i>配置詳情: ${p.description}`;
+        presetInfo.classList.remove('d-none');
+      }
+      toggleAutoMeasureBtn();
+    });
+  }
+
+  // --- 3. Auto Measurement Logic ---
+  if (autoMeasureBtn) {
+    const measureModalEl = document.getElementById('measureModal');
+    const measureModal = new bootstrap.Modal(measureModalEl);
+    const measureCanvas = document.getElementById('measureCanvas');
+    const ctx = measureCanvas.getContext('2d');
+    const measureSlider = document.getElementById('measureSlider');
+    const measureFrameText = document.getElementById('measureFrameText');
+    const measureResultText = document.getElementById('measureResultText');
+    const measureLoading = document.getElementById('measureLoading');
+    const localVideo = document.createElement('video');
+    localVideo.muted = true; localVideo.playsInline = true;
+
+    let measureState = { points: [], bgImage: new Image(), currentFrame: 0, totalFrames: 0, imgScale: 1, isLocal: false };
+
+    autoMeasureBtn.addEventListener('click', () => {
+      if (!currentAnalysis.record_id && (!fileInput.files || fileInput.files.length === 0)) {
+        alert('請先選擇影片檔案。'); return;
+      }
+      measureModal.show();
+      if (currentAnalysis.record_id) { measureState.isLocal = false; loadMeasureFrame(0); }
+      else { measureState.isLocal = true; setupLocalVideo(); }
+    });
+
+    function setupLocalVideo() {
+      measureLoading.classList.remove('d-none');
+      const file = fileInput.files[0];
+      localVideo.src = URL.createObjectURL(file);
+      localVideo.onloadedmetadata = () => {
+        measureState.totalFrames = Math.floor(localVideo.duration * 30); 
+        measureSlider.max = measureState.totalFrames - 1;
+        measureSlider.value = 0;
+        loadLocalFrame(0);
+      };
+    }
+
+    async function loadLocalFrame(frameNo) {
+      measureLoading.classList.remove('d-none');
+      localVideo.currentTime = frameNo / 30;
+      localVideo.onseeked = () => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = localVideo.videoWidth; tempCanvas.height = localVideo.videoHeight;
+        tempCanvas.getContext('2d').drawImage(localVideo, 0, 0);
+        measureState.bgImage.onload = () => {
+          measureState.currentFrame = frameNo;
+          measureFrameText.textContent = `Frame: ${frameNo} / ${measureState.totalFrames - 1}`;
+          renderMeasureCanvas();
+          measureLoading.classList.add('d-none');
+        };
+        measureState.bgImage.src = tempCanvas.toDataURL('image/jpeg');
+      };
+    }
+
+    async function loadMeasureFrame(frameNo) {
+      if (measureState.isLocal) return loadLocalFrame(frameNo);
+      measureLoading.classList.remove('d-none');
+      try {
+        const res = await fetch(`/api/get_frame?record_id=${currentAnalysis.record_id}&frame_no=${frameNo}`);
+        const data = await res.json();
+        if (data.success) {
+          measureState.bgImage.onload = () => {
+            measureState.totalFrames = data.total_frames;
+            measureState.currentFrame = data.current_frame;
+            measureSlider.max = data.total_frames - 1;
+            measureSlider.value = data.current_frame;
+            measureFrameText.textContent = `Frame: ${data.current_frame} / ${data.total_frames - 1}`;
+            renderMeasureCanvas();
+            measureLoading.classList.add('d-none');
+          };
+          measureState.bgImage.src = data.frame_data;
+        }
+      } catch (err) { measureLoading.classList.add('d-none'); }
+    }
+
+    function renderMeasureCanvas() {
+      const img = measureState.bgImage;
+      const scale = Math.min(measureCanvas.parentElement.offsetWidth / img.width, 600 / img.height);
+      measureState.imgScale = scale;
+      measureCanvas.width = img.width * scale; measureCanvas.height = img.height * scale;
+      ctx.drawImage(img, 0, 0, measureCanvas.width, measureCanvas.height);
+      ctx.strokeStyle = ctx.fillStyle = '#00ff00'; ctx.lineWidth = 2; ctx.font = '14px Monospace';
+      measureState.points.forEach((p, i) => {
+        ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillText(`P${i+1}`, p.x * scale + 10, p.y * scale - 10);
+      });
+      if (measureState.points.length === 2) {
+        const dist = Math.sqrt(Math.pow(measureState.points[1].x - measureState.points[0].x, 2) + Math.pow(measureState.points[1].y - measureState.points[0].y, 2));
+        ctx.beginPath(); ctx.moveTo(measureState.points[0].x * scale, measureState.points[0].y * scale);
+        ctx.lineTo(measureState.points[1].x * scale, measureState.points[1].y * scale); ctx.stroke();
+        measureResultText.textContent = dist.toFixed(2);
+      } else measureResultText.textContent = '0.00';
+    }
+
+    measureCanvas.addEventListener('mousedown', (e) => {
+      const rect = measureCanvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / measureState.imgScale, y = (e.clientY - rect.top) / measureState.imgScale;
+      if (measureState.points.length >= 2) measureState.points = [];
+      measureState.points.push({ x, y }); renderMeasureCanvas();
+    });
+
+    measureCanvas.oncontextmenu = (e) => { e.preventDefault(); measureState.points.pop(); renderMeasureCanvas(); };
+    measureSlider.oninput = () => { measureFrameText.textContent = `Frame: ${measureSlider.value} / ${measureState.totalFrames - 1}`; };
+    measureSlider.onchange = () => { loadMeasureFrame(measureSlider.value); };
+    document.getElementById('measurePrevFrame').onclick = () => { if (measureState.currentFrame > 0) loadMeasureFrame(measureState.currentFrame - 1); };
+    document.getElementById('measureNextFrame').onclick = () => { if (measureState.currentFrame < measureState.totalFrames - 1) loadMeasureFrame(measureState.currentFrame + 1); };
+    document.getElementById('measureClearBtn').onclick = () => { measureState.points = []; renderMeasureCanvas(); };
+    document.getElementById('measureConfirmBtn').onclick = () => {
+      if (measureState.points.length === 2) {
+        scalePxInput.value = Math.round(parseFloat(measureResultText.textContent));
+        measureModal.hide(); alert('測量完成！');
+      } else alert('請點擊兩點。');
+    };
+  }
+
+  // --- 4. Upload & Analyze Logic ---
   if (uploadForm) {
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      
-      const hasVideo = fileInput.files.length > 0;
-      const hasImu = imuInput.files.length > 0;
-      
-      if (!hasVideo && !hasImu) {
-        alert('請先選擇影片檔案或 IMU 數據檔案');
-        return;
-      }
-      
+      if (fileInput.files.length === 0) { alert('請選擇檔案'); return; }
       const formData = new FormData(uploadForm);
-      const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      formData.append('job_id', jobId);
-      
-      const progressContainer = document.getElementById('progressContainer');
-      const progressBar = document.getElementById('progressBar');
-      const progressStatus = document.getElementById('progressStatus');
-      const progressPercent = document.getElementById('progressPercent');
+      const jobId = 'job_' + Date.now(); formData.append('job_id', jobId);
       const startBtn = document.getElementById('startBtn');
-      const detectionResults = document.getElementById('detectionResults');
-      const intervalList = document.getElementById('intervalList');
-      const uploadBtnContainer = document.getElementById('uploadBtnContainer');
-
       try {
-        startBtn.textContent = '上傳與偵測中...';
         startBtn.disabled = true;
-        
-        progressContainer.classList.remove('d-none');
-        progressBar.style.width = '0%';
-        progressPercent.textContent = '0%';
-        progressStatus.textContent = '正在上傳與偵測...';
-
-        const pollInterval = setInterval(async () => {
-          try {
-            const res = await fetch(`/api/progress/${jobId}`);
-            if (res.ok) {
-              const data = await res.json();
-              progressBar.style.width = data.progress + '%';
-              progressPercent.textContent = Math.round(data.progress) + '%';
-              progressStatus.textContent = data.status || '處理中...';
-              if (data.progress >= 100) clearInterval(pollInterval);
-            }
-          } catch (err) {}
+        document.getElementById('progressContainer').classList.remove('d-none');
+        const poll = setInterval(async () => {
+          const res = await fetch(`/api/progress/${jobId}`);
+          if (res.ok) {
+            const d = await res.json();
+            document.getElementById('progressBar').style.width = d.progress + '%';
+            document.getElementById('progressStatus').textContent = d.status;
+            document.getElementById('progressPercent').textContent = Math.round(d.progress) + '%';
+            if (d.progress >= 100) clearInterval(poll);
+          }
         }, 1000);
-
-        const response = await fetch('/upload', {
-          method: 'POST',
-          body: formData
-        });
-        
-        clearInterval(pollInterval);
-        const result = await response.json();
-        
-        if (response.ok) {
-          progressBar.style.width = '100%';
-          progressPercent.textContent = '100%';
-          progressStatus.textContent = '偵測完成！';
-          
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const result = await res.json();
+        if (res.ok) {
           currentAnalysis.record_id = result.record_id;
           currentAnalysis.person_records = result.person_records;
           currentAnalysis.fps = result.fps || 30;
-
-          // 顯示偵測區間
-          detectionResults.classList.remove('d-none');
-          uploadBtnContainer.classList.add('d-none');
-          
-          if (result.person_records && result.person_records.length > 0) {
-            intervalList.innerHTML = result.person_records.map((r, i) => 
-                `<div>#${i+1}: ${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s</div>`
-            ).join('');
-          } else {
-            intervalList.innerHTML = '<div class="text-danger">未偵測到人體區間，您可以嘗試繼續分析或重新上傳。</div>';
-          }
-
-          // 滾動到偵測結果
-          detectionResults.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        } else {
-          alert('處理失敗: ' + result.error);
-        }
-      } catch (err) {
-        console.error(err);
-        alert('發生錯誤，請稍後再試。');
-      } finally {
-        startBtn.textContent = '上傳並偵測人體 / UPLOAD & DETECT';
-        startBtn.disabled = false;
-      }
+          toggleAutoMeasureBtn();
+          document.getElementById('detectionResults').classList.remove('d-none');
+          document.getElementById('uploadBtnContainer').classList.add('d-none');
+          document.getElementById('intervalList').innerHTML = result.person_records.map((r, i) => `<div>#${i+1}: ${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s</div>`).join('');
+          document.getElementById('detectionResults').scrollIntoView({ behavior: 'smooth' });
+        } else alert(result.error);
+      } catch (err) { alert('發生錯誤'); } finally { startBtn.disabled = false; }
     });
 
-    const confirmAnalyzeBtn = document.getElementById('confirmAnalyzeBtn');
-    if (confirmAnalyzeBtn) {
-        confirmAnalyzeBtn.addEventListener('click', async () => {
-            const jobId = 'job_analyze_' + Date.now();
-            const progressBar = document.getElementById('progressBar');
-            const progressStatus = document.getElementById('progressStatus');
-            const progressPercent = document.getElementById('progressPercent');
-            
-            confirmAnalyzeBtn.disabled = true;
-            confirmAnalyzeBtn.textContent = '執行分析中...';
-            
-            progressBar.style.width = '0%';
-            progressPercent.textContent = '0%';
-            progressStatus.textContent = '正在啟動分析程序...';
-
-            const pollInterval = setInterval(async () => {
-                try {
-                    const res = await fetch(`/api/progress/${jobId}`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        progressBar.style.width = data.progress + '%';
-                        progressPercent.textContent = Math.round(data.progress) + '%';
-                        progressStatus.textContent = data.status || '處理中...';
-                        if (data.progress >= 100) clearInterval(pollInterval);
-                    }
-                } catch (err) {}
-            }, 1000);
-
-            const selectedModules = Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value);
-            
-            try {
-                const response = await fetch('/api/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        record_id: currentAnalysis.record_id,
-                        job_id: jobId,
-                        modules: selectedModules,
-                        person_records: currentAnalysis.person_records,
-                        scale_info: {
-                            reference: document.getElementById('scale_reference').value,
-                            pixels: document.getElementById('scale_pixels').value
-                        },
-                        athlete: document.getElementById('athlete').value,
-                        session: document.getElementById('session').value,
-                        note: document.getElementById('note').value
-                    })
-                });
-
-                clearInterval(pollInterval);
-                
-                let result;
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.indexOf("application/json") !== -1) {
-                    result = await response.json();
-                } else {
-                    const text = await response.text();
-                    console.error("Non-JSON response:", text);
-                    throw new Error("伺服器回傳了非 JSON 格式的錯誤訊息，請檢查後端日誌。");
-                }
-
-                if (response.ok) {
-                    progressBar.style.width = '100%';
-                    progressPercent.textContent = '100%';
-                    progressStatus.textContent = '分析完成！';
-                    
-                    console.log("Analysis Result:", result);
-                    currentAnalysis.peak_data = result.peak_data;
-                    currentAnalysis.scale_info = {
-                        reference: document.getElementById('scale_reference').value,
-                        pixels: document.getElementById('scale_pixels').value
-                    };
-
-                    // 更新預覽畫面
-                    const videoFrame = document.querySelector('.video-frame');
-                    const imuModalBtn = document.getElementById('imuModalBtn');
-                    
-                    if (videoFrame) {
-                        videoFrame.innerHTML = '';
-                        if (result.video_url) {
-                            const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
-                            videoFrame.innerHTML += `
-                              <div class="mb-3 w-100">
-                                <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
-                                    <source src="${videoUrl}" type="video/mp4">
-                                </video>
-                              </div>
-                            `;
-                            const speedContainer = document.getElementById('previewSpeedContainer');
-                            if (speedContainer) speedContainer.classList.remove('d-none');
-                        }
-                        
-                        // Show IMU Modal Button if record has ID
-                        if (result.record_id && imuModalBtn) {
-                            imuModalBtn.classList.remove('d-none');
-                        }
-
-                        videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
-                        videoFrame.style.height = 'auto';
-                        videoFrame.style.minHeight = '0';
-                        videoFrame.style.background = 'transparent';
-                        videoFrame.style.border = 'none';
-                    }
-
-                    if (result.peak_data && result.peak_data.length > 0) {
-                        console.log("Populating peak table with:", result.peak_data);
-                        populatePeakTable(result.peak_data);
-                    } else {
-                        console.warn("No peak data received from backend.");
-                        document.getElementById('csvBody').innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">此項目無步頻數據</td></tr>';
-                    }
-
-                    const resultSec = document.getElementById('result');
-                    if (resultSec) resultSec.scrollIntoView({ behavior: 'smooth' });
-                    setTimeout(() => alert('分析完成！'), 500);
-                    
-                    // 重置 UI 狀態
-                    document.getElementById('detectionResults').classList.add('d-none');
-                    document.getElementById('uploadBtnContainer').classList.remove('d-none');
-
-                } else {
-                    alert('分析失敗: ' + (result.error || "未知錯誤"));
-                }
-            } catch (err) {
-                console.error(err);
-                alert('發生錯誤: ' + err.message);
-            } finally {
-                confirmAnalyzeBtn.disabled = false;
-                confirmAnalyzeBtn.textContent = '確認並執行分析 / CONFIRM & ANALYZE';
-                clearInterval(pollInterval);
-            }
-        });
-    }
-
-    // IMU Modal Logic
-    const imuModalBtn = document.getElementById('imuModalBtn');
-    const imuModal = document.getElementById('imuModal');
-    const imuModalPlotImg = document.getElementById('imuModalPlotImg');
-    const imuPlotContainer = document.getElementById('imuPlotContainer');
-    const imuPlotLoading = document.getElementById('imuPlotLoading');
-    const imuNoData = document.getElementById('imuNoData');
-
-    if (imuModalBtn && imuModal) {
-        const bsModal = new bootstrap.Modal(imuModal);
-        
-        imuModalBtn.addEventListener('click', () => {
-            bsModal.show();
-            loadImuChart();
-        });
-
-        // Type Change
-        document.querySelectorAll('input[name="imuType"]').forEach(radio => {
-            radio.addEventListener('change', loadImuChart);
-        });
-    }
-
-    async function loadImuChart() {
-        if (!currentAnalysis.record_id) return;
-        
-        const type = document.querySelector('input[name="imuType"]:checked').value;
-        const url = `/api/imu_plot/${currentAnalysis.record_id}?type=${type}&t=${new Date().getTime()}`;
-        
-        imuPlotContainer.classList.add('d-none');
-        imuNoData.classList.add('d-none');
-        imuPlotLoading.classList.remove('d-none');
-
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
-            
-            if (data.plot_url) {
-                imuModalPlotImg.src = data.plot_url;
-                imuPlotContainer.classList.remove('d-none');
-            } else {
-                imuNoData.classList.remove('d-none');
-            }
-        } catch (err) {
-            console.error("IMU Plot Load Error:", err);
-            imuNoData.classList.remove('d-none');
-        } finally {
-            imuPlotLoading.classList.add('d-none');
+    document.getElementById('confirmAnalyzeBtn').onclick = async () => {
+      const jobId = 'job_analyze_' + Date.now();
+      const confirmBtn = document.getElementById('confirmAnalyzeBtn');
+      confirmBtn.disabled = true;
+      const poll = setInterval(async () => {
+        const res = await fetch(`/api/progress/${jobId}`);
+        if (res.ok) {
+          const d = await res.json();
+          document.getElementById('progressBar').style.width = d.progress + '%';
+          document.getElementById('progressPercent').textContent = Math.round(d.progress) + '%';
+          document.getElementById('progressStatus').textContent = d.status;
+          if (d.progress >= 100) clearInterval(poll);
         }
-    }
+      }, 1000);
+      try {
+        const res = await fetch('/api/analyze', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            record_id: currentAnalysis.record_id, job_id: jobId,
+            modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value),
+            person_records: currentAnalysis.person_records,
+            scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value },
+            athlete: document.getElementById('athlete').value,
+            session: document.getElementById('session').value,
+            note: document.getElementById('note').value
+          })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          currentAnalysis.peak_data = result.peak_data;
+          const videoFrame = document.querySelector('.video-frame');
+          if (result.video_url) {
+            videoFrame.innerHTML = `<video id="previewVideo" width="100%" height="auto" controls autoplay><source src="${result.video_url}?t=${Date.now()}" type="video/mp4"></video>`;
+            document.getElementById('previewSpeedContainer').classList.remove('d-none');
+            videoFrame.style.background = 'transparent';
+          }
+          populatePeakTable(result.peak_data);
+          document.getElementById('imuModalBtn').classList.remove('d-none');
+          document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
+          document.getElementById('detectionResults').classList.add('d-none');
+          document.getElementById('uploadBtnContainer').classList.remove('d-none');
+        } else alert(result.error);
+      } catch (err) { alert('發生錯誤'); } finally { confirmBtn.disabled = false; }
+    };
   }
+
+  // --- 5. Peak Table & Regeneration ---
+  window.clearFoot = (btn, side) => {
+    const row = btn.closest('tr');
+    row.querySelector(`.peak-frame-${side}`).textContent = '';
+    row.querySelector(`.peak-x-${side}`).textContent = '';
+    row.querySelector(`.peak-y-${side}`).textContent = '';
+    
+    const fR = row.querySelector('.peak-frame-r').textContent.trim();
+    const fL = row.querySelector('.peak-frame-l').textContent.trim();
+    if (!fR && !fL) {
+      row.remove();
+    }
+    window.sortAndReindexTable();
+  };
 
   function populatePeakTable(peakData) {
     const csvBody = document.getElementById('csvBody');
-    if (!csvBody) {
-        console.error("csvBody element not found!");
-        return;
+    if (!csvBody) return;
+    if (!peakData || peakData.length === 0) { 
+      csvBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">無步頻數據</td></tr>'; 
+      return; 
     }
+    csvBody.innerHTML = peakData.map(row => createRowHTML(row.Frame_Right, row.X_Right, row.Y_Right, row.Frame_Left, row.X_Left, row.Y_Left)).join('');
+    window.sortAndReindexTable();
+  }
 
-    console.log("Starting populatePeakTable with", peakData.length, "rows");
+  function createRowHTML(fR, xR, yR, fL, xL, yL) {
+    const fmt = (v) => v !== null && v !== undefined && v !== '' ? Math.round(v) : '';
+    return `<tr class="peak-row">
+      <td class="text-muted row-idx text-center bg-light"></td>
+      <td contenteditable="true" class="mono peak-frame-r text-center">${fmt(fR)}</td>
+      <td contenteditable="true" class="mono peak-x-r text-center">${fmt(xR)}</td>
+      <td contenteditable="true" class="mono peak-y-r text-center">${fmt(yR)}</td>
+      <td contenteditable="true" class="mono peak-frame-l text-center">${fmt(fL)}</td>
+      <td contenteditable="true" class="mono peak-x-l text-center">${fmt(xL)}</td>
+      <td contenteditable="true" class="mono peak-y-l text-center">${fmt(yL)}</td>
+      <td class="text-center">
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-danger py-0 px-2" onclick="window.clearFoot(this, 'r')" title="刪除右腳數據">R</button>
+          <button class="btn btn-outline-primary py-0 px-2" onclick="window.clearFoot(this, 'l')" title="刪除左腳數據">L</button>
+        </div>
+      </td>
+    </tr>`;
+  }
 
-    if (!peakData || peakData.length === 0) {
-      csvBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">目前無步頻數據</td></tr>';
-      return;
-    }
-
-    let rowsHTML = '';
-    peakData.forEach((row, idx) => {
-      // 處理右腳數據 (Frame_Right, X_Right, Y_Right)
-      if (row.Frame_Right !== undefined && row.Frame_Right !== null && row.Frame_Right !== "") {
-        rowsHTML += createRowHTML(row.Frame_Right, row.X_Right, 'Right', row.Y_Right);
-      }
-      // 處理左腳數據 (Frame_Left, X_Left, Y_Left)
-      if (row.Frame_Left !== undefined && row.Frame_Left !== null && row.Frame_Left !== "") {
-        rowsHTML += createRowHTML(row.Frame_Left, row.X_Left, 'Left', row.Y_Left);
-      }
+  window.sortAndReindexTable = () => {
+    const csvBody = document.getElementById('csvBody');
+    if (!csvBody) return;
+    const rows = Array.from(csvBody.querySelectorAll('.peak-row'));
+    rows.sort((a, b) => {
+      const fRa = parseInt(a.querySelector('.peak-frame-r').textContent) || Infinity;
+      const fLa = parseInt(a.querySelector('.peak-frame-l').textContent) || Infinity;
+      const fRb = parseInt(b.querySelector('.peak-frame-r').textContent) || Infinity;
+      const fLb = parseInt(b.querySelector('.peak-frame-l').textContent) || Infinity;
+      return Math.min(fRa, fLa) - Math.min(fRb, fLb);
     });
-
-    console.log("Generated rowsHTML length:", rowsHTML.length);
-
-    if (rowsHTML === '') {
-        console.warn("No valid peaks found in peakData despite having rows.");
-        csvBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">數據格式不符或無有效步點</td></tr>';
-    } else {
-        csvBody.innerHTML = rowsHTML;
-        sortAndReindexTable();
-        console.log("Peak table populated and sorted.");
-    }
-  }
-
-  function createRowHTML(frame, x, foot, y) {
-    const time = (frame / currentAnalysis.fps).toFixed(2);
-    return `
-      <tr class="peak-row" data-foot="${foot}">
-        <td class="text-muted row-idx"></td>
-        <td contenteditable="true" class="mono peak-time">${time}</td>
-        <td>
-          <select class="form-select form-select-sm peak-foot-select" onchange="updateFootBadge(this)">
-            <option value="Right" ${foot === 'Right' ? 'selected' : ''}>Right</option>
-            <option value="Left" ${foot === 'Left' ? 'selected' : ''}>Left</option>
-          </select>
-        </td>
-        <td contenteditable="true" class="peak-x">${Math.round(x)}</td>
-        <td contenteditable="true" class="peak-y">${y ? Math.round(y) : 0}</td>
-        <td>
-          <button class="btn btn-outline-danger btn-sm" onclick="deleteRow(this)">刪除</button>
-        </td>
-      </tr>
-    `;
-  }
-
-  window.updateFootBadge = (el) => {
-    const foot = el.value;
-    el.closest('tr').setAttribute('data-foot', foot);
-  };
-
-  window.deleteRow = (btn) => {
-    if (confirm('確定要刪除此步點？')) {
-      btn.closest('tr').remove();
-      sortAndReindexTable();
-    }
+    csvBody.innerHTML = ''; 
+    rows.forEach((row, i) => { 
+      row.querySelector('.row-idx').textContent = i + 1; 
+      csvBody.appendChild(row); 
+    });
   };
 
   window.addNewPeak = () => {
     const csvBody = document.getElementById('csvBody');
-    const newRow = createRowHTML(0, 0, 'Right', 0);
-    const tempDiv = document.createElement('tbody');
-    tempDiv.innerHTML = newRow;
-    csvBody.appendChild(tempDiv.firstElementChild);
-    sortAndReindexTable();
+    const t = document.createElement('tbody'); t.innerHTML = createRowHTML('', '', '', '', '', '');
+    csvBody.appendChild(t.firstElementChild); window.sortAndReindexTable();
   };
 
-  function sortAndReindexTable() {
-    const csvBody = document.getElementById('csvBody');
-    const rows = Array.from(csvBody.querySelectorAll('.peak-row'));
-    if (rows.length === 0) return;
-
-    rows.sort((a, b) => {
-      const timeA = parseFloat(a.querySelector('.peak-time').textContent) || 0;
-      const timeB = parseFloat(b.querySelector('.peak-time').textContent) || 0;
-      return timeA - timeB;
-    });
-
-    csvBody.innerHTML = '';
-    rows.forEach((row, index) => {
-      row.querySelector('.row-idx').textContent = index + 1;
-      csvBody.appendChild(row);
-    });
-  }
-
-  const regenBtn = document.getElementById('regenBtn');
-  if (regenBtn) {
-    regenBtn.onclick = async () => {
-      if (!currentAnalysis.record_id) {
-        alert('請先進行影片分析。');
-        return;
-      }
-
-      const rows = document.querySelectorAll('.peak-row');
-      const newPeakData = [];
-      let rightPeaks = [];
-      let leftPeaks = [];
-
-      rows.forEach(row => {
-        const time = parseFloat(row.querySelector('.peak-time').textContent) || 0;
-        const frame = Math.round(time * currentAnalysis.fps);
-        const x = parseFloat(row.querySelector('.peak-x').textContent) || 0;
-        const y = parseFloat(row.querySelector('.peak-y').textContent) || 0;
-        const foot = row.getAttribute('data-foot');
-
-        if (foot === 'Right') {
-          rightPeaks.push({ Frame: frame, X: x, Y: y });
-        } else {
-          leftPeaks.push({ Frame: frame, X: x, Y: y });
-        }
+  document.getElementById('regenBtn').onclick = async () => {
+    if (!currentAnalysis.record_id) return;
+    const rows = document.querySelectorAll('.peak-row');
+    const newPeakData = Array.from(rows).map(row => ({
+      Frame_Right: parseInt(row.querySelector('.peak-frame-r').textContent) || null,
+      X_Right: parseFloat(row.querySelector('.peak-x-r').textContent) || null,
+      Y_Right: parseFloat(row.querySelector('.peak-y-r').textContent) || null,
+      Frame_Left: parseInt(row.querySelector('.peak-frame-l').textContent) || null,
+      X_Left: parseFloat(row.querySelector('.peak-x-l').textContent) || null,
+      Y_Left: parseFloat(row.querySelector('.peak-y-l').textContent) || null
+    }));
+    try {
+      const res = await fetch('/regenerate_gait', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_id: currentAnalysis.record_id, peak_data: newPeakData, scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value }, person_records: currentAnalysis.person_records })
       });
+      const result = await res.json();
+      if (res.ok) {
+        document.querySelector('.video-frame').innerHTML = `<video id="previewVideo" width="100%" height="auto" controls autoplay><source src="${result.video_url}&t=${Date.now()}" type="video/mp4"></video>`;
+        alert('重新生成完成！');
+      } else alert(result.error);
+    } catch (err) { alert('發生錯誤'); }
+  };
 
-      const maxLen = Math.max(rightPeaks.length, leftPeaks.length);
-      for (let i = 0; i < maxLen; i++) {
-        newPeakData.push({
-          Frame_Right: rightPeaks[i] ? rightPeaks[i].Frame : null,
-          X_Right: rightPeaks[i] ? rightPeaks[i].X : null,
-          Y_Right: rightPeaks[i] ? rightPeaks[i].Y : null,
-          Frame_Left: leftPeaks[i] ? leftPeaks[i].Frame : null,
-          X_Left: leftPeaks[i] ? leftPeaks[i].X : null,
-          Y_Left: leftPeaks[i] ? leftPeaks[i].Y : null
-        });
-      }
+  document.getElementById('saveProjectBtn').onclick = () => {
+    if (!currentAnalysis.record_id) return;
+    const athleteSelect = document.getElementById('athlete');
+    fetch('/api/line_notify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record_id: currentAnalysis.record_id, athlete_name: athleteSelect.options[athleteSelect.selectedIndex].text, session_name: document.getElementById('session').value, modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value) })
+    }).then(() => alert('專案已保存並發送通知！'));
+  };
 
-      try {
-        regenBtn.textContent = '產出中...';
-        regenBtn.disabled = true;
+  document.getElementById('previewSpeed').onchange = () => {
+    const v = document.getElementById('previewVideo'); if (v) v.playbackRate = parseFloat(document.getElementById('previewSpeed').value);
+  };
 
-        const response = await fetch('/regenerate_gait', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            record_id: currentAnalysis.record_id,
-            peak_data: newPeakData,
-            scale_info: currentAnalysis.scale_info,
-            person_records: currentAnalysis.person_records
-          })
-        });
-
-        const result = await response.json();
-        if (response.ok) {
-          const videoFrame = document.querySelector('.video-frame');
-          if (videoFrame && result.video_url) {
-            const videoUrl = result.video_url + (result.video_url.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
-            videoFrame.innerHTML = `
-              <video id="previewVideo" width="100%" height="auto" controls autoplay style="display: block; width: 100%; height: auto; border-radius: 4px;">
-                <source src="${videoUrl}" type="video/mp4">
-                您的瀏覽器不支援影片播放。
-              </video>
-            `;
-            videoFrame.style.height = 'auto';
-            videoFrame.style.minHeight = '0';
-            videoFrame.style.background = 'transparent';
-            videoFrame.style.border = 'none';
-            videoFrame.classList.remove('d-flex', 'align-items-center', 'justify-content-center', 'text-white-50');
-
-            // Apply current playback speed
-            const speedSelector = document.getElementById('previewSpeed');
-            const previewVideo = document.getElementById('previewVideo');
-            if (speedSelector && previewVideo) {
-                previewVideo.playbackRate = parseFloat(speedSelector.value);
-            }
-
-            // 更新下載連結
-            const downloadBtn = document.querySelector('a[href*="/static/jobs/"][class*="btn-dark"], a[href="#"][class*="btn-dark"]');
-            if (downloadBtn) {
-              downloadBtn.href = videoUrl;
-              downloadBtn.download = result.video_url.split('/').pop().split('?')[0];
-            }
-          }
-          alert('影片已重新生成！');
-        } else {
-          alert('重新生成失敗: ' + result.error);
-        }
-      } catch (err) {
-        console.error(err);
-        alert('發生錯誤');
-      } finally {
-        regenBtn.textContent = '重新產生影片';
-        regenBtn.disabled = false;
-      }
-    };
+  async function loadImuChart() {
+    if (!currentAnalysis.record_id) return;
+    const type = document.querySelector('input[name="imuType"]:checked').value;
+    const container = document.getElementById('imuPlotContainer'), loading = document.getElementById('imuPlotLoading'), noData = document.getElementById('imuNoData');
+    container.classList.add('d-none'); noData.classList.add('d-none'); loading.classList.remove('d-none');
+    try {
+      const res = await fetch(`/api/imu_plot/${currentAnalysis.record_id}?type=${type}&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.plot_url) { document.getElementById('imuModalPlotImg').src = data.plot_url; container.classList.remove('d-none'); }
+      else noData.classList.remove('d-none');
+    } catch (err) { noData.classList.remove('d-none'); } finally { loading.classList.add('d-none'); }
   }
 
-  const saveProjectBtn = document.getElementById('saveProjectBtn');
-  if (saveProjectBtn) {
-    saveProjectBtn.onclick = () => {
-      if (!currentAnalysis.record_id) {
-        alert('請先上傳影片並完成分析後再保存。');
-        return;
-      }
-      
-      const sessionName = document.getElementById('session').value || "未指定場次";
-      
-      // Call the LINE notification API
-      fetch('/api/line_notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          record_id: currentAnalysis.record_id,
-          session_name: sessionName
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          alert('專案已完整保存，並已發送 LINE 通知！\n紀錄 ID: ' + currentAnalysis.record_id);
-        } else {
-          console.error('LINE notification failed:', data.error);
-          alert('專案已保存，但 LINE 通知發送失敗。\n紀錄 ID: ' + currentAnalysis.record_id);
-        }
-      })
-      .catch(err => {
-        console.error('Error sending LINE notification:', err);
-        alert('專案已保存，但發送通知時發生錯誤。\n紀錄 ID: ' + currentAnalysis.record_id);
-      });
-    };
-  }
-
-  const csvBodyInner = document.getElementById('csvBody');
-  if (csvBodyInner && csvBodyInner.innerHTML.trim() === '') {
-    csvBodyInner.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">請先上傳影片進行分析</td></tr>';
-  }
-
-  // Preview speed control
-  const previewSpeed = document.getElementById('previewSpeed');
-  if (previewSpeed) {
-    previewSpeed.addEventListener('change', () => {
-      const previewVideo = document.getElementById('previewVideo');
-      if (previewVideo) {
-        previewVideo.playbackRate = parseFloat(previewSpeed.value);
-      }
-    });
+  const imuBtn = document.getElementById('imuModalBtn');
+  if (imuBtn) {
+    const bsImu = new bootstrap.Modal(document.getElementById('imuModal'));
+    imuBtn.onclick = () => { bsImu.show(); loadImuChart(); };
+    document.querySelectorAll('input[name="imuType"]').forEach(r => r.onchange = loadImuChart);
   }
 });
