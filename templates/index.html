@@ -314,6 +314,7 @@
 
       <div class="d-flex gap-2 mt-3">
         <button class="btn btn-outline-dark" onclick="window.addNewPeak()">新增步點</button>
+        <button class="btn btn-outline-primary" id="openPickerBtn">開啟選點補幀</button>
         <button class="btn btn-outline-dark" id="regenBtn">重新產生影片</button>
         <button class="btn btn-dark" id="saveProjectBtn">保存專案</button>
         <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
@@ -364,6 +365,52 @@
         </div>
         <div class="modal-footer bg-light py-2 small mono text-muted justify-content-start">
           <i class="bi bi-info-circle me-1"></i> 操作說明：在畫面上點擊兩點來測量距離。右鍵點擊可取消上一個點。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Point Picker Modal -->
+  <div class="modal fade" id="pickerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-primary text-white border-0 py-3">
+          <h5 class="modal-title mono fs-6">選點補幀工具</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-0 bg-dark position-relative" style="min-height: 500px;">
+          <div class="d-flex align-items-center justify-content-center overflow-hidden" style="height: 600px; background: #000;">
+            <canvas id="pickerCanvas" style="cursor: crosshair; max-width: 100%; max-height: 100%;"></canvas>
+          </div>
+          
+          <div class="position-absolute bottom-0 start-0 end-0 p-3 bg-dark bg-opacity-75 text-white">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <input type="range" class="form-range flex-grow-1" id="pickerSlider" min="0" max="100" value="0">
+              <span class="mono small text-nowrap" id="pickerFrameText">Frame: 0 / 0</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-light" id="pickerPrevFrame"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light" id="pickerNextFrame"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light ms-2" id="pickerClearBtn">清除點位 / CLEAR</button>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="mono small me-2">
+                  座標 / COORD: <span id="pickerResultText" class="fw-bold text-warning">X: 0, Y: 0</span>
+                </div>
+                <button type="button" class="btn btn-danger btn-sm px-3" id="recordRightBtn">記錄為右腳 (R)</button>
+                <button type="button" class="btn btn-primary btn-sm px-3" id="recordLeftBtn">記錄為左腳 (L)</button>
+              </div>
+            </div>
+          </div>
+          
+          <div id="pickerLoading" class="position-absolute top-0 start-0 end-0 bottom-0 d-flex flex-column align-items-center justify-content-center bg-dark bg-opacity-75 d-none">
+            <div class="spinner-border text-light mb-2" role="status"></div>
+            <div class="text-light mono small">LOADING VIDEO FRAME...</div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light py-2 small mono text-muted justify-content-start">
+          <i class="bi bi-info-circle me-1"></i> 操作說明：在畫面上點擊一點，然後點擊「記錄為右腳」或「記錄為左腳」填入表格。
         </div>
       </div>
     </div>

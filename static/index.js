@@ -208,7 +208,148 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  // --- 4. Upload & Analyze Logic ---
+  // --- 4. Point Picker Logic ---
+  const openPickerBtn = document.getElementById('openPickerBtn');
+  if (openPickerBtn) {
+    const pickerModalEl = document.getElementById('pickerModal');
+    const pickerModal = new bootstrap.Modal(pickerModalEl);
+    const pickerCanvas = document.getElementById('pickerCanvas');
+    const ctx = pickerCanvas.getContext('2d');
+    const pickerSlider = document.getElementById('pickerSlider');
+    const pickerFrameText = document.getElementById('pickerFrameText');
+    const pickerResultText = document.getElementById('pickerResultText');
+    const pickerLoading = document.getElementById('pickerLoading');
+    const localVideo = document.createElement('video');
+    localVideo.muted = true; localVideo.playsInline = true;
+
+    let pickerState = { point: null, bgImage: new Image(), currentFrame: 0, totalFrames: 0, imgScale: 1, isLocal: false };
+
+    openPickerBtn.addEventListener('click', () => {
+      if (!currentAnalysis.record_id && (!fileInput.files || fileInput.files.length === 0)) {
+        alert('請先選擇影片檔案。'); return;
+      }
+      pickerModal.show();
+      if (currentAnalysis.record_id) { pickerState.isLocal = false; loadPickerFrame(0); }
+      else { pickerState.isLocal = true; setupLocalVideo(); }
+    });
+
+    function setupLocalVideo() {
+      pickerLoading.classList.remove('d-none');
+      const file = fileInput.files[0];
+      localVideo.src = URL.createObjectURL(file);
+      localVideo.onloadedmetadata = () => {
+        pickerState.totalFrames = Math.floor(localVideo.duration * 30); 
+        pickerSlider.max = pickerState.totalFrames - 1;
+        pickerSlider.value = 0;
+        loadLocalFrame(0);
+      };
+    }
+
+    async function loadLocalFrame(frameNo) {
+      pickerLoading.classList.remove('d-none');
+      localVideo.currentTime = frameNo / 30;
+      localVideo.onseeked = () => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = localVideo.videoWidth; tempCanvas.height = localVideo.videoHeight;
+        tempCanvas.getContext('2d').drawImage(localVideo, 0, 0);
+        pickerState.bgImage.onload = () => {
+          pickerState.currentFrame = frameNo;
+          pickerFrameText.textContent = `Frame: ${frameNo} / ${pickerState.totalFrames - 1}`;
+          renderPickerCanvas();
+          pickerLoading.classList.add('d-none');
+        };
+        pickerState.bgImage.src = tempCanvas.toDataURL('image/jpeg');
+      };
+    }
+
+    async function loadPickerFrame(frameNo) {
+      if (pickerState.isLocal) return loadLocalFrame(frameNo);
+      pickerLoading.classList.remove('d-none');
+      try {
+        const res = await fetch(`/api/get_frame?record_id=${currentAnalysis.record_id}&frame_no=${frameNo}`);
+        const data = await res.json();
+        if (data.success) {
+          pickerState.bgImage.onload = () => {
+            pickerState.totalFrames = data.total_frames;
+            pickerState.currentFrame = data.current_frame;
+            pickerSlider.max = data.total_frames - 1;
+            pickerSlider.value = data.current_frame;
+            pickerFrameText.textContent = `Frame: ${data.current_frame} / ${data.total_frames - 1}`;
+            renderPickerCanvas();
+            pickerLoading.classList.add('d-none');
+          };
+          pickerState.bgImage.src = data.frame_data;
+        }
+      } catch (err) { pickerLoading.classList.add('d-none'); }
+    }
+
+    function renderPickerCanvas() {
+      const img = pickerState.bgImage;
+      const scale = Math.min(pickerCanvas.parentElement.offsetWidth / img.width, 600 / img.height);
+      pickerState.imgScale = scale;
+      pickerCanvas.width = img.width * scale; pickerCanvas.height = img.height * scale;
+      ctx.drawImage(img, 0, 0, pickerCanvas.width, pickerCanvas.height);
+      
+      if (pickerState.point) {
+        const p = pickerState.point;
+        ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.stroke();
+        // Crosshair
+        ctx.beginPath(); ctx.moveTo(p.x * scale - 10, p.y * scale); ctx.lineTo(p.x * scale + 10, p.y * scale); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p.x * scale, p.y * scale - 10); ctx.lineTo(p.x * scale, p.y * scale + 10); ctx.stroke();
+        pickerResultText.textContent = `X: ${Math.round(p.x)}, Y: ${Math.round(p.y)}`;
+      } else {
+        pickerResultText.textContent = 'X: 0, Y: 0';
+      }
+    }
+
+    pickerCanvas.addEventListener('mousedown', (e) => {
+      const rect = pickerCanvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / pickerState.imgScale, y = (e.clientY - rect.top) / pickerState.imgScale;
+      pickerState.point = { x, y }; renderPickerCanvas();
+    });
+
+    pickerSlider.oninput = () => { pickerFrameText.textContent = `Frame: ${pickerSlider.value} / ${pickerState.totalFrames - 1}`; };
+    pickerSlider.onchange = () => { loadPickerFrame(pickerSlider.value); };
+    document.getElementById('pickerPrevFrame').onclick = () => { if (pickerState.currentFrame > 0) loadPickerFrame(pickerState.currentFrame - 1); };
+    document.getElementById('pickerNextFrame').onclick = () => { if (pickerState.currentFrame < pickerState.totalFrames - 1) loadPickerFrame(pickerState.currentFrame + 1); };
+    document.getElementById('pickerClearBtn').onclick = () => { pickerState.point = null; renderPickerCanvas(); };
+
+    function fillTableData(side, frame, x, y) {
+      const csvBody = document.getElementById('csvBody');
+      let rows = csvBody.querySelectorAll('.peak-row');
+      let targetRow = rows.length > 0 ? rows[rows.length - 1] : null;
+
+      // Check if last row already has data for this side
+      const frameVal = targetRow ? targetRow.querySelector(`.peak-frame-${side}`).textContent.trim() : '';
+      
+      if (!targetRow || frameVal !== '') {
+        window.addNewPeak();
+        rows = csvBody.querySelectorAll('.peak-row');
+        targetRow = rows[rows.length - 1];
+      }
+
+      targetRow.querySelector(`.peak-frame-${side}`).textContent = Math.round(frame);
+      targetRow.querySelector(`.peak-x-${side}`).textContent = Math.round(x);
+      targetRow.querySelector(`.peak-y-${side}`).textContent = Math.round(y);
+      
+      window.sortAndReindexTable();
+    }
+
+    document.getElementById('recordRightBtn').onclick = () => {
+      if (!pickerState.point) return alert('請先在畫面上點擊選取一點');
+      fillTableData('r', pickerState.currentFrame, pickerState.point.x, pickerState.point.y);
+      pickerState.point = null; renderPickerCanvas();
+    };
+
+    document.getElementById('recordLeftBtn').onclick = () => {
+      if (!pickerState.point) return alert('請先在畫面上點擊選取一點');
+      fillTableData('l', pickerState.currentFrame, pickerState.point.x, pickerState.point.y);
+      pickerState.point = null; renderPickerCanvas();
+    };
+  }
+
+  // --- 5. Upload & Analyze Logic ---
   if (uploadForm) {
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
