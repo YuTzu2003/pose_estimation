@@ -105,7 +105,10 @@ class GoProVideoAutomationApp(QWidget):
         self.status_label.setText(text)
 
     def connect_windows_wifi(self, ssid, password):
-        self.log(f"正在建立 Wi-Fi 設定檔並自動切換至: {ssid}...")
+        self.log(f"等待 5 秒讓 GoPro Wi-Fi 啟動廣播...")
+        time.sleep(5)  # 關鍵修正：給 GoPro 暖機時間
+        
+        self.log(f"正在建立 Wi-Fi 設定檔並嘗試連線至: {ssid}...")
         xml_content = f"""<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
     <name>{ssid}</name>
@@ -130,13 +133,26 @@ class GoProVideoAutomationApp(QWidget):
         try:
             xml_path = Path.cwd() / "gopro_wifi_temp.xml"
             xml_path.write_text(xml_content, encoding="utf-8")
-            subprocess.run(f'netsh wlan add profile filename="{xml_path}"', shell=True, stdout=subprocess.DEVNULL)
-            subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, stdout=subprocess.DEVNULL)
+            
+            # 關鍵修正：捕捉輸出，如果有錯印在日誌上，不要用 DEVNULL 吃掉
+            add_result = subprocess.run(f'netsh wlan add profile filename="{xml_path}"', shell=True, capture_output=True, text=True, encoding='cp950')
+            if add_result.returncode != 0:
+                self.log(f"⚠️ 新增設定檔失敗: {add_result.stderr or add_result.stdout}")
+
+            # 給 Windows 1 秒鐘消化設定檔
+            time.sleep(1) 
+
+            connect_result = subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True, text=True, encoding='cp950')
+            if connect_result.returncode != 0:
+                self.log(f"⚠️ 連線指令失敗: {connect_result.stderr or connect_result.stdout}")
+            else:
+                self.log("✅ 成功送出連線指令！(請確認電腦右下角是否連上)")
+
             if xml_path.exists():
                 xml_path.unlink()
             return True
         except Exception as e:
-            self.log(f"Wi-Fi 自動連線錯誤: {e}")
+            self.log(f"Wi-Fi 自動連線發生例外錯誤: {e}")
             return False
 
     def get_gopro_gateway_ip(self):
@@ -230,13 +246,10 @@ class GoProVideoAutomationApp(QWidget):
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
             self.log("錄影已結束。")
             
-<<<<<<< HEAD
-=======
             self.log("解鎖指令: 授權相機進入外部連線控制狀態...")
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
             
->>>>>>> db2503e38985a796e342306b99a64dc8236f119c
             self.log("發送指令: 喚醒 GoPro Wi-Fi 熱點廣播...")
             await self.client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
 

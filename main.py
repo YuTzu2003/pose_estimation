@@ -800,7 +800,7 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def download_via_wifi(self):
         self.btn_download_wifi.setEnabled(False)
-        self.log("🚀 啟動 Wi-Fi 下載流程...")
+        self.log("🚀 啟動 Wi-Fi 自動切換與下載流程...")
         
         ssid, password = self.input_ap_ssid.text(), self.input_ap_pass.text()
         if not ssid:
@@ -808,40 +808,84 @@ class GoProXsensApp(QWidget):
             self.btn_download_wifi.setEnabled(True)
             return
 
-        # 1. 偵測目前環境
+        # 1. 偵測目前環境，如果已經連著就直接下載
         gopro_ip = self.get_gopro_gateway_ip()
-        
-        # 先檢查是否已經連著了
         if self._ping_gopro(gopro_ip):
-            self.log(f"✅ 偵測到已連線至 GoPro ({gopro_ip})，開始下載...")
+            self.log(f"✅ 偵測到已連線至 GoPro ({gopro_ip})，直接開始下載...")
             await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
             self.btn_download_wifi.setEnabled(True)
             return
 
-        # 若未連線，執行切換指令
-        if self.connect_windows_wifi(ssid, password):
-            self.log(f"⏳ 已送出連線請求 ({ssid})，等待 Windows 切換 (12秒)...")
-            await asyncio.sleep(12)
+        # 2. 執行切換 (使用 gopro_control.py 的邏輯)
+        if await self.connect_windows_wifi(ssid, password):
+            self.log("⏳ 等待 Windows 穩定連線 (10秒)...")
+            await asyncio.sleep(10)
             
             # 切換完後重新抓一次閘道 IP
             gopro_ip = self.get_gopro_gateway_ip()
-            is_reachable = False
-            for i in range(6):
-                if self._ping_gopro(gopro_ip):
-                    self.log(f"✅ 已成功連上 GoPro 熱點 ({gopro_ip})。")
-                    is_reachable = True
-                    break
-                self.log(f"⏳ 等待 {gopro_ip} 回應 ({i+1}/6)...")
-                await asyncio.sleep(2)
-            
-            if is_reachable:
-                await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
-            else:
-                self.log(f"❌ 逾時：無法與 {gopro_ip} 通訊。請手動確認 Wi-Fi 連線。")
+            self.log(f"📡 正在對接相機 IP: {gopro_ip}")
+            await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
         else:
-            self.log("❌ 無法執行 Wi-Fi 切換指令，請檢查系統權限或 SSID 設定。")
+            self.log("❌ 無法執行 Wi-Fi 切換指令。")
         
         self.btn_download_wifi.setEnabled(True)
+
+    async def connect_windows_wifi(self, ssid, password):
+        self.log(f"等待 5 秒讓 GoPro Wi-Fi 啟動廣播...")
+        await asyncio.sleep(5)  # 關鍵修正：給 GoPro 暖機時間
+        
+        self.log(f"正在建立 Wi-Fi 設定檔並嘗試連線至: {ssid}...")
+        # 注意：下面的 xml_content 必須頂格寫，不能有縮排空白
+        xml_content = f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{ssid}</name>
+    <SSIDConfig><SSID><name>{ssid}</name></SSID></SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>manual</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>WPA2PSK</authentication>
+                <encryption>AES</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>
+            <sharedKey>
+                <keyType>passPhrase</keyType>
+                <protected>false</protected>
+                <keyMaterial>{password}</keyMaterial>
+            </sharedKey>
+        </security>
+    </MSM>
+</WLANProfile>"""
+        try:
+            xml_path = Path.cwd() / "gopro_wifi_temp.xml"
+            xml_path.write_text(xml_content, encoding="utf-8")
+            
+            # 1. 斷開目前連線 (確保它會切換)
+            subprocess.run('netsh wlan disconnect', shell=True, capture_output=True)
+            
+            # 2. 新增設定檔
+            add_result = subprocess.run(f'netsh wlan add profile filename="{xml_path}"', shell=True, capture_output=True, text=True, encoding='cp950')
+            if add_result.returncode != 0:
+                self.log(f"⚠️ 新增設定檔失敗: {add_result.stderr or add_result.stdout}")
+
+            await asyncio.sleep(1) 
+
+            # 3. 執行連線
+            connect_result = subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True, text=True, encoding='cp950')
+            if connect_result.returncode != 0:
+                self.log(f"⚠️ 連線指令失敗: {connect_result.stderr or connect_result.stdout}")
+                success = False
+            else:
+                self.log("✅ 成功送出連線指令！(請確認電腦右下角是否連上)")
+                success = True
+
+            if xml_path.exists():
+                xml_path.unlink()
+            return success
+        except Exception as e:
+            self.log(f"Wi-Fi 自動連線發生例外錯誤: {e}")
+            return False
 
     @asyncSlot()
     async def download_via_usb(self):
@@ -1047,31 +1091,6 @@ class GoProXsensApp(QWidget):
                 return False, f"USB 失敗: {output}"
         except Exception as e:
             return False, f"USB 執行出錯: {e}"
-
-    def connect_windows_wifi(self, ssid, password):
-        # 1. 先嘗試刪除舊的同名設定檔，避免衝突
-        subprocess.run(f'netsh wlan delete profile name="{ssid}"', shell=True, capture_output=True)
-        
-        # 2. 建立新的設定檔 XML
-        xml = f"""<?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>{ssid}</name><SSIDConfig><SSID><name>{ssid}</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>{password}</keyMaterial></sharedKey></security></MSM></WLANProfile>"""
-        try:
-            p = Path.cwd() / "gp_temp.xml"
-            p.write_text(xml)
-            
-            # 3. 新增設定檔
-            subprocess.run(f'netsh wlan add profile filename="{p}"', shell=True, capture_output=True)
-            p.unlink()
-            
-            # 4. 斷開目前連線，確保 Windows 會切換
-            subprocess.run('netsh wlan disconnect', shell=True, capture_output=True)
-            time.sleep(1)
-            
-            # 5. 執行連線
-            subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True)
-            return True
-        except Exception as e:
-            self.log(f"⚠️ Wi-Fi 指令執行失敗: {e}")
-            return False
 
     def closeEvent(self, event):
         new_config = {
