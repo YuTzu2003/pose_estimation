@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import threading
 import cv2
+import json
 from flask import Blueprint, request, jsonify, current_app
 from modules.db import get_conn, release_conn
 from modules.pipeline.backbone_detect import get_person_records
@@ -104,6 +105,24 @@ def upload():
         print(f"Database error during initial record creation: {e}")
     finally:
         release_conn(conn)
+
+    analysis_info = {
+        "record_id": record_id,
+        "athlete": athlete,
+        "session": session_name,
+        "note": note,
+        "scale_info": {"reference": scale_reference, "pixels": scale_pixels},
+        "modules": ["detection"], 
+        "person_records": person_records,
+        "status": "detected",
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "files": {
+            "original_video": filename if 'filename' in locals() else None,
+            "imu_csv": os.path.basename(imu_csv_db_path) if imu_csv_db_path else None
+        }
+    }
+    with open(os.path.join(project_dir, 'analysis_info.json'), 'w', encoding='utf-8') as f:
+        json.dump(analysis_info, f, ensure_ascii=False, indent=4)
 
     update_progress(job_id, 100, "上傳與偵測完成！")
     return jsonify({
@@ -220,7 +239,6 @@ def analyze():
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        # 更新已存在的紀錄
         cursor.execute("""UPDATE Record SET Frame_Start = ?, Frame_End = ?, Session_name = ?, Note = ?, Scale_Reference = ?, Scale_Pixels = ? WHERE Record_id = ?""", 
                        (frame_start, frame_end, session_name, note, scale_info.get('reference'), scale_info.get('pixels'), record_id))
         conn.commit()
@@ -229,6 +247,33 @@ def analyze():
         print(f"Database error during record update: {e}")
     finally:
         release_conn(conn)
+
+    # 儲存分析流程資訊到 JSON
+    
+    module_map = {
+        "angle": "Joint Angle",
+        "track": "Keypoint Track",
+        "gait": "Stride & Speed"
+    }
+    friendly_modules = [module_map.get(m, m) for m in selected_modules]
+    
+    analysis_info = {
+        "record_id": record_id,
+        "athlete": athlete,
+        "session": session_name,
+        "note": note,
+        "scale_info": scale_info,
+        "modules": friendly_modules,
+        "person_records": person_records,
+        "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "files": {
+            "original_video": orig_video_filename,
+            "pose_csv": res_csv if 'person_records' in locals() and person_records else None,
+            "result_video": os.path.basename(result_video_path) if result_video_path else None
+        }
+    }
+    with open(os.path.join(project_dir, 'analysis_info.json'), 'w', encoding='utf-8') as f:
+        json.dump(analysis_info, f, ensure_ascii=False, indent=4)
 
     update_progress(job_id, 100, "處理完成！")
     video_url = None
