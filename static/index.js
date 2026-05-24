@@ -174,10 +174,10 @@ document.addEventListener('DOMContentLoaded', () => {
       measureState.imgScale = scale;
       measureCanvas.width = img.width * scale; measureCanvas.height = img.height * scale;
       ctx.drawImage(img, 0, 0, measureCanvas.width, measureCanvas.height);
-      ctx.strokeStyle = ctx.fillStyle = '#00ff00'; ctx.lineWidth = 2; ctx.font = '14px Monospace';
+      ctx.strokeStyle = ctx.fillStyle = '#00ff00'; ctx.lineWidth = 1; ctx.font = '12px Monospace';
       measureState.points.forEach((p, i) => {
-        ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillText(`P${i+1}`, p.x * scale + 10, p.y * scale - 10);
+        ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillText(`P${i+1}`, p.x * scale + 5, p.y * scale - 5);
       });
       if (measureState.points.length === 2) {
         const dist = Math.sqrt(Math.pow(measureState.points[1].x - measureState.points[0].x, 2) + Math.pow(measureState.points[1].y - measureState.points[0].y, 2));
@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const csvBody = document.getElementById('csvBody');
     if (!csvBody) return;
     if (!peakData || peakData.length === 0) { 
-      csvBody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">無步頻數據</td></tr>'; 
+      csvBody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">無步頻數據</td></tr>'; 
       return; 
     }
     csvBody.innerHTML = peakData.map(row => createRowHTML(row.Frame_Right, row.X_Right, row.Y_Right, row.Frame_Left, row.X_Left, row.Y_Left)).join('');
@@ -323,14 +323,14 @@ document.addEventListener('DOMContentLoaded', () => {
       <td contenteditable="true" class="mono peak-frame-r text-center">${fmt(fR)}</td>
       <td contenteditable="true" class="mono peak-x-r text-center">${fmt(xR)}</td>
       <td contenteditable="true" class="mono peak-y-r text-center">${fmt(yR)}</td>
+      <td class="text-center">
+        <button class="btn btn-outline-danger py-0 px-2" onclick="window.clearFoot(this, 'r')" title="刪除右腳數據"><i class="bi bi-trash"></i></button>
+      </td>
       <td contenteditable="true" class="mono peak-frame-l text-center">${fmt(fL)}</td>
       <td contenteditable="true" class="mono peak-x-l text-center">${fmt(xL)}</td>
       <td contenteditable="true" class="mono peak-y-l text-center">${fmt(yL)}</td>
       <td class="text-center">
-        <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-danger py-0 px-2" onclick="window.clearFoot(this, 'r')" title="刪除右腳數據">R</button>
-          <button class="btn btn-outline-primary py-0 px-2" onclick="window.clearFoot(this, 'l')" title="刪除左腳數據">L</button>
-        </div>
+        <button class="btn btn-outline-primary py-0 px-2" onclick="window.clearFoot(this, 'l')" title="刪除左腳數據"><i class="bi bi-trash"></i></button>
       </td>
     </tr>`;
   }
