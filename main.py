@@ -27,7 +27,7 @@ except ImportError:
     print("Warning: xsensdeviceapi not found.")
 
 # ========================================================
-# ⚙️ 設定檔管理
+# 設定檔管理
 # ========================================================
 CONFIG_FILE = "config.json"
 
@@ -255,7 +255,15 @@ class XsensManager(QThread):
         return success
 
     def start_logging(self):
-        if not self._is_connected or self.is_logging: return
+        if not self._is_connected:
+            self.log_signal.emit("⚠️ Xsens 未連線，無法記錄。")
+            return
+        
+        # 如果還在忙，等待一下
+        if self.is_logging:
+            self.should_stop = True
+            time.sleep(0.5)
+
         self.is_logging = True
         self.should_stop = False
         import threading
@@ -266,24 +274,33 @@ class XsensManager(QThread):
         writers = {}
         files = {}
         start_counters = {}
+        packet_counts = {}
         try:
             output_dir = Path.cwd() / "xsens_output"
             output_dir.mkdir(exist_ok=True)
             for cb in self.mtw_callbacks:
                 fname = f"mtw_{cb.device.deviceId().toXsString()}_{int(time.time())}.csv"
-                f = open(output_dir / fname, "w", newline="")
+                full_path = output_dir / fname
+                f = open(full_path, "w", newline="")
                 w = csv.writer(f)
                 w.writerow(["packet_counter", "timestamp_s", "q_w", "q_x", "q_y", "q_z",
                             "acc_x", "acc_y", "acc_z", "gyr_x", "gyr_y", "gyr_z",
                             "mag_x", "mag_y", "mag_z"])
                 writers[cb.index] = w
                 files[cb.index] = f
+                packet_counts[cb.index] = 0
                 cb.clear_buffer()
-            self.log_signal.emit("🔴 [Xsens] 同步記錄中...")
+                self.log_signal.emit(f"📝 正在建立 CSV: {fname}")
+            
+            self.log_signal.emit(f"🔴 [Xsens] 同步記錄中 (共 {len(self.mtw_callbacks)} 個感測器)...")
+            
+            last_progress_update = time.time()
             while not self.should_stop:
+                has_data = False
                 for cb in self.mtw_callbacks:
                     packet = cb.pop_oldest()
                     if packet is None: continue
+                    has_data = True
                     try:
                         current_counter = packet.packetCounter()
                         if cb.index not in start_counters:
@@ -295,8 +312,6 @@ class XsensManager(QThread):
                         gyr = packet.calibratedGyroscopeData()
                         mag = packet.calibratedMagneticField()
 
-                        # 依照 test_only_xsens.py 的正確數據對應：
-                        # acc[0]=X, acc[1]=Y, acc[2]=Z (不進行對調)
                         writers[cb.index].writerow([
                             current_counter, f"{timestamp_s:.3f}",
                             q[0], q[1], q[2], q[3],
@@ -304,14 +319,27 @@ class XsensManager(QThread):
                             gyr[0], gyr[1], gyr[2],
                             mag[0], mag[1], mag[2],
                         ])
+                        packet_counts[cb.index] += 1
                     except: continue
-                time.sleep(0.001)
+                
+                # 每 5 秒回報一次進度，避免洗版
+                if time.time() - last_progress_update > 5:
+                    status_msg = "📊 記錄進度: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
+                    self.log_signal.emit(status_msg)
+                    last_progress_update = time.time()
+
+                if not has_data:
+                    time.sleep(0.001)
         except Exception as e:
             self.log_signal.emit(f"❌ Xsens 記錄錯誤: {e}")
         finally:
-            for f in files.values(): f.close()
+            for f in files.values(): 
+                try: f.close()
+                except: pass
             self.is_logging = False
-            self.log_signal.emit("Xsens 記錄停止。")
+            self.log_signal.emit(f"✅ Xsens 記錄已停止。檔案儲存於: {output_dir}")
+            for idx, count in packet_counts.items():
+                self.log_signal.emit(f"   └─ 感測器 {idx}: 共存入 {count} 筆數據")
 
     def stop_logging(self):
         self.should_stop = True
@@ -337,6 +365,7 @@ class GoProXsensApp(QWidget):
         self.is_station_mode = False
         self.xsens = XsensManager()
         self.init_ui()
+        self.apply_styles()
         
         # Signals
         self.append_log_signal.connect(self._safe_append_log)
@@ -345,114 +374,289 @@ class GoProXsensApp(QWidget):
         self.xsens.connection_finished.connect(self.on_xsens_connected)
         self.xsens.discovery_finished.connect(self.on_xsens_discovered)
 
+    def apply_styles(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #0f111a;
+                color: #a6accd;
+                font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+                font-size: 16px; /* Base font size increased */
+            }
+            /* 頂部標題 */
+            QLabel#header_title {
+                font-size: 32px; /* Increased */
+                font-weight: 800;
+                color: #ffffff;
+                background: transparent;
+                margin-top: 10px;
+            }
+            QLabel#header_subtitle {
+                font-size: 16px; /* Increased */
+                color: #676e95;
+                background: transparent;
+                margin-bottom: 15px;
+            }
+            /* 狀態卡片 */
+            QLabel#status_label {
+                font-size: 20px; /* Increased */
+                font-weight: bold;
+                padding: 15px 20px;
+                background-color: #1a1c25;
+                border: 1px solid #2d3143;
+                border-radius: 12px;
+                color: #82aaff;
+                margin-bottom: 10px;
+            }
+            /* 卡片容器 */
+            QGroupBox {
+                background-color: #1a1c25;
+                border: 1px solid #2d3143;
+                border-radius: 15px;
+                margin-top: 30px;
+                padding: 20px 15px 15px 15px;
+                font-weight: bold;
+                font-size: 18px; /* Increased */
+                color: #89ddff;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 20px;
+                padding: 0 10px;
+                background-color: #0f111a;
+            }
+            /* 通用按鈕 */
+            QPushButton {
+                background-color: #292d3e;
+                border: 1px solid #32374d;
+                border-radius: 10px;
+                padding: 12px 20px; /* Increased padding */
+                color: #eeffff;
+                font-weight: 600;
+                font-size: 16px; /* Explicit font size for buttons */
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #3b4252;
+                border-color: #444a66;
+            }
+            QPushButton:pressed {
+                background-color: #242837;
+            }
+            QPushButton:disabled {
+                background-color: #161821;
+                color: #464b5d;
+                border: 1px solid #212431;
+            }
+            /* 功能性按鈕 */
+            QPushButton#btn_gopro_connect {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0078d4, stop:1 #00bcf2);
+                border: none;
+                color: white;
+                font-size: 18px; /* Increased */
+            }
+            QPushButton#btn_start {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #11998e, stop:1 #38ef7d);
+                border: none;
+                color: #ffffff;
+                font-size: 20px; /* Increased */
+            }
+            QPushButton#btn_stop {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #cb2d3e, stop:1 #ef473a);
+                border: none;
+                color: #ffffff;
+                font-size: 20px; /* Increased */
+            }
+            QPushButton#btn_download_wifi, QPushButton#btn_download_usb {
+                background-color: transparent;
+                border: 2px solid #82aaff;
+                color: #82aaff;
+                font-size: 18px; /* Increased */
+            }
+            QPushButton#btn_download_wifi:hover, QPushButton#btn_download_usb:hover {
+                background-color: #82aaff;
+                color: #0f111a;
+            }
+            /* 輸入框 */
+            QLineEdit {
+                background-color: #090b10;
+                border: 1px solid #2d3143;
+                border-radius: 8px;
+                padding: 10px; /* Increased padding */
+                color: #ffffff;
+                font-size: 16px; /* Increased */
+                selection-background-color: #82aaff;
+            }
+            QLineEdit:focus {
+                border: 1px solid #82aaff;
+            }
+            /* 日誌視窗 */
+            QTextEdit {
+                background-color: #090b10;
+                border: 1px solid #1a1c25;
+                border-radius: 12px;
+                color: #c3e88d;
+                font-family: "Fira Code", "Consolas", monospace;
+                font-size: 18px; /* Further increased from 14px to 18px */
+                padding: 15px;
+                line-height: 1.5;
+            }
+            QLabel {
+                background: transparent;
+            }
+            QLabel#log_header_label {
+                font-size: 16px;
+                font-weight: bold;
+                color: #676e95;
+                margin-bottom: 5px;
+            }
+        """)
+
     def init_ui(self):
-        self.setWindowTitle("GoPro & Xsens 同步控制系統 (v2.3)")
-        self.setMinimumSize(600, 850)
-        layout = QVBoxLayout()
+        self.setWindowTitle("GoPro & Xsens Control Hub")
+        self.setMinimumSize(950, 950) # Increased width slightly for larger text
+        
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(30, 30, 30, 30)
+        main_layout.setSpacing(20)
 
-        self.status_label = QLabel("狀態: 準備就緒")
+        # --- Header Section ---
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+        
+        title = QLabel("GoPro & Xsens")
+        title.setObjectName("header_title")
+        subtitle = QLabel("Synchronized Data Collection & Management System")
+        subtitle.setObjectName("header_subtitle")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+        main_layout.addWidget(header_widget)
+
+        # --- Status Banner ---
+        self.status_label = QLabel("● 系統狀態: 準備就緒")
+        self.status_label.setObjectName("status_label")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: blue;")
-        layout.addWidget(self.status_label)
+        main_layout.addWidget(self.status_label)
 
-        # 1. Xsens
-        xsens_gb = QGroupBox("1. Xsens 感測器控制")
+        # --- Main Content Area ---
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(25)
+        
+        left_panel = QVBoxLayout()
+        right_panel = QVBoxLayout()
+
+        # 1. Xsens Card
+        xsens_gb = QGroupBox("📡 Xsens 感測器網路")
         xl = QVBoxLayout()
+        xl.setSpacing(12)
         xbl = QHBoxLayout()
-        self.btn_xsens_discover = QPushButton("🔍 掃描頻道")
+        self.btn_xsens_discover = QPushButton("🔍 頻道掃描")
         self.btn_xsens_discover.clicked.connect(self.discover_xsens)
         self.btn_xsens_connect = QPushButton("⚡ 快速連線")
         self.btn_xsens_connect.clicked.connect(self.connect_xsens)
         xbl.addWidget(self.btn_xsens_discover)
         xbl.addWidget(self.btn_xsens_connect)
         xl.addLayout(xbl)
-        self.btn_reset_xsens = QPushButton("🔄 方向歸零 (Alignment Reset)")
+        self.btn_reset_xsens = QPushButton("🔄 方向歸零 (Alignment)")
         self.btn_reset_xsens.setEnabled(False)
         self.btn_reset_xsens.clicked.connect(self.reset_xsens)
         xl.addWidget(self.btn_reset_xsens)
         xsens_gb.setLayout(xl)
-        layout.addWidget(xsens_gb)
+        left_panel.addWidget(xsens_gb)
 
-        # 2. GoPro
-        gopro_gb = QGroupBox("2. GoPro 控制")
+        # 2. GoPro Card
+        gopro_gb = QGroupBox("📷 GoPro 攝影機控制")
         gl = QVBoxLayout()
-        self.btn_gopro_connect = QPushButton("🔵 連線 GoPro (藍牙)")
-        self.btn_gopro_connect.setFixedHeight(40)
+        gl.setSpacing(15)
+        
+        self.btn_gopro_connect = QPushButton("🔵 1. 建立藍牙連線")
+        self.btn_gopro_connect.setObjectName("btn_gopro_connect")
+        self.btn_gopro_connect.setFixedHeight(45)
         self.btn_gopro_connect.clicked.connect(self.connect_gopro)
         gl.addWidget(self.btn_gopro_connect)
 
-        station_gb = QGroupBox("🏡 區網連線 (Station Mode)")
-        sf = QFormLayout()
-        self.input_ssid = QLineEdit(self.config["local_wifi_ssid"])
-        self.input_pass = QLineEdit(self.config["local_wifi_pass"])
-        self.input_pass.setEchoMode(QLineEdit.Password)
-        self.input_gopro_ip = QLineEdit(self.config["gopro_ip"])
-        sf.addRow("本機 Wi-Fi 名稱:", self.input_ssid)
-        sf.addRow("本機 Wi-Fi 密碼:", self.input_pass)
-        sf.addRow("GoPro 區網 IP:", self.input_gopro_ip)
-        sl = QVBoxLayout()
-        sl.addLayout(sf)
-        self.btn_provision_wifi = QPushButton("📡 配置 Wi-Fi 至 GoPro")
-        self.btn_provision_wifi.setEnabled(False)
-        self.btn_provision_wifi.clicked.connect(self.provision_gopro_wifi)
-        sl.addWidget(self.btn_provision_wifi)
-        station_gb.setLayout(sl)
-        gl.addWidget(station_gb)
-        gopro_gb.setLayout(gl)
-        layout.addWidget(gopro_gb)
-
-        # 3. Sync
-        ctrl_gb = QGroupBox("3. 同步錄製")
-        cl = QVBoxLayout()
-        cbl = QHBoxLayout()
-        self.btn_start = QPushButton("🔴 開始錄影")
-        self.btn_start.setEnabled(False)
-        self.btn_start.setMinimumHeight(50)
-        self.btn_start.setStyleSheet("background-color: #d4edda; font-weight: bold;")
-        self.btn_start.clicked.connect(self.start_all)
-        self.btn_stop = QPushButton("⬛ 停止錄影")
-        self.btn_stop.setEnabled(False)
-        self.btn_stop.setMinimumHeight(50)
-        self.btn_stop.setStyleSheet("background-color: #f8d7da; font-weight: bold;")
-        self.btn_stop.clicked.connect(self.stop_all)
-        cbl.addWidget(self.btn_start)
-        cbl.addWidget(self.btn_stop)
-        cl.addLayout(cbl)
-        ctrl_gb.setLayout(cl)
-        layout.addWidget(ctrl_gb)
-        
-        # 4. Download
-        dl_gb = QGroupBox("4. 影片下載設定")
-        dl = QVBoxLayout()
-        df = QFormLayout()
-        self.input_ap_ssid = QLineEdit(self.config["ap_ssid"])
-        self.input_ap_pass = QLineEdit(self.config["ap_pass"])
-        df.addRow("GoPro 熱點 SSID:", self.input_ap_ssid)
-        df.addRow("GoPro 熱點密碼:", self.input_ap_pass)
-        dl.addLayout(df)
-        
-        self.btn_fetch_ap = QPushButton("🔄 從 GoPro 自動讀取熱點資訊")
+        self.btn_fetch_ap = QPushButton("🔄 2. 讀取相機熱點資訊")
         self.btn_fetch_ap.setEnabled(False)
         self.btn_fetch_ap.clicked.connect(self.fetch_gopro_ap_info)
-        dl.addWidget(self.btn_fetch_ap)
-        
-        self.btn_download = QPushButton("💾 下載最新影片")
-        self.btn_download.setEnabled(False)
-        self.btn_download.setFixedHeight(40)
-        self.btn_download.setStyleSheet("background-color: #cce5ff;")
-        self.btn_download.clicked.connect(self.download_video)
-        dl.addWidget(self.btn_download)
-        dl_gb.setLayout(dl)
-        layout.addWidget(dl_gb)
+        gl.addWidget(self.btn_fetch_ap)
 
-        # Log
-        layout.addWidget(QLabel("執行日誌:"))
+        ap_box = QWidget()
+        af = QFormLayout(ap_box)
+        af.setLabelAlignment(Qt.AlignRight)
+        self.input_ap_ssid = QLineEdit(self.config["ap_ssid"])
+        self.input_ap_pass = QLineEdit(self.config["ap_pass"])
+        af.addRow("熱點 SSID:", self.input_ap_ssid)
+        af.addRow("熱點密碼:", self.input_ap_pass)
+        gl.addWidget(ap_box)
+
+        gopro_gb.setLayout(gl)
+        left_panel.addWidget(gopro_gb)
+
+        # 3. Control Card
+        ctrl_gb = QGroupBox("🎮 同步錄製任務")
+        cl = QVBoxLayout()
+        cl.setSpacing(15)
+        cbl = QHBoxLayout()
+        cbl.setSpacing(15)
+        self.btn_start = QPushButton("🔴 開始同步錄製")
+        self.btn_start.setObjectName("btn_start")
+        self.btn_start.setEnabled(False)
+        self.btn_start.setMinimumHeight(70)
+        self.btn_start.clicked.connect(self.start_all)
+        self.btn_stop = QPushButton("⬛ 停止錄製")
+        self.btn_stop.setObjectName("btn_stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.setMinimumHeight(70)
+        self.btn_stop.clicked.connect(self.stop_all)
+        cbl.addWidget(self.btn_start, 2)
+        cbl.addWidget(self.btn_stop, 1)
+        cl.addLayout(cbl)
+        ctrl_gb.setLayout(cl)
+        right_panel.addWidget(ctrl_gb)
+        
+        # 4. Data Card
+        dl_gb = QGroupBox("📂 影片下載管理")
+        dl = QVBoxLayout()
+        dl.setSpacing(12)
+        
+        self.btn_download_wifi = QPushButton("📡 Wi-Fi 下載 (需先讀取熱點資訊)")
+        self.btn_download_wifi.setObjectName("btn_download_wifi")
+        self.btn_download_wifi.setEnabled(False)
+        self.btn_download_wifi.setFixedHeight(50)
+        self.btn_download_wifi.clicked.connect(self.download_via_wifi)
+        dl.addWidget(self.btn_download_wifi)
+
+        self.btn_download_usb = QPushButton("🔌 USB 下載")
+        self.btn_download_usb.setObjectName("btn_download_usb")
+        self.btn_download_usb.setEnabled(False)
+        self.btn_download_usb.setFixedHeight(50)
+        self.btn_download_usb.clicked.connect(self.download_via_usb)
+        dl.addWidget(self.btn_download_usb)
+        dl_gb.setLayout(dl)
+        right_panel.addWidget(dl_gb)
+        
+        # Spacer to push things up
+        right_panel.addStretch()
+
+        content_layout.addLayout(left_panel, 1)
+        content_layout.addLayout(right_panel, 1)
+        main_layout.addLayout(content_layout)
+
+        # --- Console Section ---
+        console_widget = QWidget()
+        console_layout = QVBoxLayout(console_widget)
+        console_layout.setContentsMargins(0, 10, 0, 0)
+        log_label = QLabel("系統執行日誌 (System Console)")
+        log_label.setObjectName("log_header_label")
+        console_layout.addWidget(log_label)
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setStyleSheet("background-color: #f8f9fa; font-family: Consolas; font-size: 10pt;")
-        layout.addWidget(self.log_view)
+        console_layout.addWidget(self.log_view)
+        main_layout.addWidget(console_widget, 1)
 
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
     @pyqtSlot(str)
     def log(self, message):
@@ -464,7 +668,25 @@ class GoProXsensApp(QWidget):
         self.log_view.moveCursor(self.log_view.textCursor().End)
 
     def update_status_text(self, text):
-        self.status_label.setText(text)
+        self.status_label.setText(f"● {text}")
+
+    def get_gopro_gateway_ip(self):
+        try:
+            # 優先嘗試執行 ipconfig 抓取閘道
+            result = subprocess.run('ipconfig', shell=True, capture_output=True, text=True, encoding='cp950')
+            lines = result.stdout.split('\n')
+            is_wifi_section = False
+            for line in lines:
+                if "Wireless LAN adapter Wi-Fi" in line or "無線區域網路介面卡 Wi-Fi" in line:
+                    is_wifi_section = True
+                if is_wifi_section and ("Default Gateway" in line or "預設閘道" in line):
+                    parts = line.split(':')
+                    if len(parts) > 1:
+                        ip = parts[1].strip()
+                        if ip and not ip.startswith("fe80") and "." in ip:
+                            return ip
+        except: pass
+        return "10.5.5.9"
 
     def discover_xsens(self):
         self.btn_xsens_discover.setEnabled(False)
@@ -536,24 +758,15 @@ class GoProXsensApp(QWidget):
     def check_ready_state(self):
         gopro_ready = self.gopro_client and self.gopro_client.is_connected
         xsens_ready = self.xsens._is_connected
-        if gopro_ready: self.btn_provision_wifi.setEnabled(True)
         if gopro_ready and xsens_ready:
             self.btn_start.setEnabled(True)
             self.status_label.setText("狀態: 裝置皆已就緒")
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
 
     @asyncSlot()
     async def provision_gopro_wifi(self):
-        ssid, pwd = self.input_ssid.text(), self.input_pass.text()
-        self.log(f"傳送 Wi-Fi ({ssid}) 至 GoPro...")
-        try:
-            payload = bytearray([0x0a, len(ssid)]) + ssid.encode() + bytearray([0x12, len(pwd)]) + pwd.encode()
-            command = bytearray([len(payload) + 1, 0x03]) + payload
-            await self.gopro_client.write_gatt_char(NM_COMMAND_CHAR, command, response=True)
-            self.log("✅ 已送達，請檢查相機畫面。")
-            self.is_station_mode = True
-        except Exception as e:
-            self.log(f"❌ 配置失敗: {e}")
+        # Method preserved for structural integrity but no longer called from UI
+        pass
 
     @asyncSlot()
     async def start_all(self):
@@ -564,6 +777,7 @@ class GoProXsensApp(QWidget):
             self.btn_start.setEnabled(False)
             self.btn_stop.setEnabled(True)
             self.status_label.setText("狀態: 正在錄製")
+            self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
         except Exception as e:
             self.log(f"❌ 啟動失敗: {e}")
             self.xsens.stop_logging()
@@ -578,53 +792,68 @@ class GoProXsensApp(QWidget):
         self.xsens.stop_logging()
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        self.btn_download.setEnabled(True)
+        self.btn_download_wifi.setEnabled(True)
+        self.btn_download_usb.setEnabled(True)
         self.status_label.setText("狀態: 錄製完成")
+        self.status_label.setStyleSheet("color: #dcdcdc; font-weight: bold;")
 
     @asyncSlot()
-    async def download_video(self):
-        self.btn_download.setEnabled(False)
-        self.log("🚀 啟動智能下載...")
+    async def download_via_wifi(self):
+        self.btn_download_wifi.setEnabled(False)
+        self.log("🚀 啟動 Wi-Fi 下載流程...")
         
-        target = self.input_gopro_ip.text()
-        ip = None
-        if target == "gopro.local":
-            try: ip = socket.gethostbyname("gopro.local")
-            except: pass
-        else: ip = target
+        ssid, password = self.input_ap_ssid.text(), self.input_ap_pass.text()
+        if not ssid:
+            self.log("❌ 錯誤：未設定 AP SSID，請先點擊「讀取相機熱點資訊」。")
+            self.btn_download_wifi.setEnabled(True)
+            return
 
-        if not ip or not self._ping_gopro(ip):
-            self.log("🔍 搜尋區網中的 GoPro (Parallel Scan)...")
-            ip = await asyncio.get_event_loop().run_in_executor(None, self._scan_local_network_for_gopro)
+        # 1. 偵測目前環境
+        gopro_ip = self.get_gopro_gateway_ip()
         
-        if ip:
-            self.log(f"🌐 嘗試區網下載 (IP: {ip})...")
-            if await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, ip):
-                self.btn_download.setEnabled(True)
-                return
+        # 先檢查是否已經連著了
+        if self._ping_gopro(gopro_ip):
+            self.log(f"✅ 偵測到已連線至 GoPro ({gopro_ip})，開始下載...")
+            await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
+            self.btn_download_wifi.setEnabled(True)
+            return
 
-        self.log("🔌 嘗試 USB 下載...")
+        # 若未連線，執行切換指令
+        if self.connect_windows_wifi(ssid, password):
+            self.log(f"⏳ 已送出連線請求 ({ssid})，等待 Windows 切換 (12秒)...")
+            await asyncio.sleep(12)
+            
+            # 切換完後重新抓一次閘道 IP
+            gopro_ip = self.get_gopro_gateway_ip()
+            is_reachable = False
+            for i in range(6):
+                if self._ping_gopro(gopro_ip):
+                    self.log(f"✅ 已成功連上 GoPro 熱點 ({gopro_ip})。")
+                    is_reachable = True
+                    break
+                self.log(f"⏳ 等待 {gopro_ip} 回應 ({i+1}/6)...")
+                await asyncio.sleep(2)
+            
+            if is_reachable:
+                await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
+            else:
+                self.log(f"❌ 逾時：無法與 {gopro_ip} 通訊。請手動確認 Wi-Fi 連線。")
+        else:
+            self.log("❌ 無法執行 Wi-Fi 切換指令，請檢查系統權限或 SSID 設定。")
+        
+        self.btn_download_wifi.setEnabled(True)
+
+    @asyncSlot()
+    async def download_via_usb(self):
+        self.btn_download_usb.setEnabled(False)
+        self.log("🔌 啟動 USB 下載流程...")
         success, msg = self._usb_download_logic()
         if success:
             self.log(msg)
-            self.btn_download.setEnabled(True)
-            return
         else:
             self.log(f"⚠️ USB 下載未成功: {msg}")
-        
-        self.log("📡 嘗試備用 AP 模式 (直連 GoPro Wi-Fi)...")
-        if self.connect_windows_wifi(self.input_ap_ssid.text(), self.input_ap_pass.text()):
-            self.log("⏳ 等待 Windows 切換 Wi-Fi (12秒)...")
-            await asyncio.sleep(12)
-            for i in range(5):
-                if self._ping_gopro("10.5.5.9"):
-                    self.log("✅ 已連上 GoPro 熱點。")
-                    break
-                self.log(f"⏳ 等待 10.5.5.9 回應 ({i+1}/5)...")
-                await asyncio.sleep(2)
-            await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, "10.5.5.9")
-        
-        self.btn_download.setEnabled(True)
+            self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
+        self.btn_download_usb.setEnabled(True)
 
     def _ping_gopro(self, ip):
         try:
@@ -661,10 +890,30 @@ class GoProXsensApp(QWidget):
                 if 'media' not in media_data or not media_data['media']:
                     tlog("ℹ️ 相機內目前沒有影片檔案")
                     return False
-                last_folder = media_data['media'][-1]
-                folder = last_folder['d']
-                file_name = last_folder['fs'][-1]['n']
-                tlog(f"🎬 發現最新影片: {file_name}，準備下載...")
+                
+                # 攤平所有資料夾中的檔案，以便進行全域排序
+                all_files = []
+                for folder_item in media_data['media']:
+                    dir_name = folder_item['d']
+                    for f in folder_item.get('fs', []):
+                        if f['n'].lower().endswith('.mp4'):
+                            all_files.append({
+                                'dir': dir_name,
+                                'n': f['n'],
+                                'mod': int(f['mod'])  # GoPro 的原始生成時間戳
+                            })
+                
+                if not all_files:
+                    tlog("ℹ️ 找不到任何 MP4 影片")
+                    return False
+
+                # 依照 mod (建立時間) 由新到舊排序
+                all_files.sort(key=lambda x: x['mod'], reverse=True)
+                latest = all_files[0]
+                
+                folder = latest['dir']
+                file_name = latest['n']
+                tlog(f"🎬 發現全相機最新影片 (依日期): {file_name}")
                 
                 url = f"http://{gopro_ip}:8080/videos/DCIM/{folder}/{file_name}"
                 save_path = Path.cwd() / file_name
@@ -690,64 +939,142 @@ class GoProXsensApp(QWidget):
         return False
 
     def _usb_download_logic(self):
-        match = "HERO|GoPro"
-        ps = rf"""
-        try {{
-            $s = New-Object -ComObject Shell.Application
-            $thisPC = $s.Namespace(17)
-            $p = $thisPC.Items() | Where-Object {{ $_.Name -match "{match}" }}
-            if (!$p) {{ throw "找不到名字包含 {match} 的裝置" }}
-            $storage = $p.GetFolder.Items() | Where-Object {{ $_.IsFolder }}
-            if (!$storage) {{ throw "裝置內沒有可存取的儲存區" }}
-            $dcim = $null
-            foreach ($st in $storage) {{
-                $found = $st.GetFolder.Items() | Where-Object {{ $_.Name -eq "DCIM" }}
-                if ($found) {{ $dcim = $found; break }}
-            }}
-            if (!$dcim) {{ throw "在儲存區中找不到 DCIM 資料夾" }}
-            $fs = @()
-            foreach ($fld in $dcim.GetFolder.Items()) {{ 
-                if ($fld.IsFolder) {{
-                    $fs += $fld.GetFolder.Items() | Where-Object {{ $_.Name -like "*.MP4" }}
-                }}
-            }}
-            if ($fs.Count -eq 0) {{ throw "相機內沒有 MP4 檔案" }}
-            # 依照修改日期排序
-            $l = $fs | Sort-Object {{ $_.ModifyDate }} -Descending | Select-Object -First 1
-            $op = Join-Path (Get-Location) "video_output"
-            if (!(Test-Path $op)) {{ New-Item -ItemType Directory -Path $op }}
-            $s.Namespace($op).CopyHere($l, 16)
-            Write-Host "SUCCESS:$($l.Name)"
-        }} catch {{
+        match_token = "HERO|GoPro"
+        ps_template = r"""
+        try {
+            $shell = New-Object -ComObject Shell.Application
+            $thisPC = $shell.Namespace(17)
+            $gopro = $thisPC.Items() | Where-Object { $_.Name -match "GOPRO_MATCH_TOKEN" }
+            if (!$gopro) { throw "找不到 GoPro 裝置，請確認 USB 已連線。" }
+            
+            $storage = $gopro.GetFolder.Items() | Where-Object { $_.Name -match "GoPro MTP" -or $_.Name -match "Internal Storage" -or $_.Name -match "存儲" -or $_.Name -match "SD Card" }
+            if (!$storage) { throw "找不到存儲空間 (SD卡)。" }
+            
+            $dcim = $storage.GetFolder.Items() | Where-Object { $_.Name -eq "DCIM" }
+            if (!$dcim) { throw "找不到 DCIM 資料夾。" }
+            
+            $goproFolders = $dcim.GetFolder.Items() | Where-Object { $_.Name -match "GOPRO" }
+            
+            $allFiles = @()
+            foreach ($folderItem in $goproFolders) {
+                $folder = $folderItem.GetFolder
+                
+                # 尋找「建立日期」的屬性索引
+                $dateCreatedIndex = -1
+                for ($i=0; $i -lt 100; $i++) {
+                    $colName = $folder.GetDetailsOf($null, $i)
+                    if ($colName -eq "建立日期" -or $colName -eq "Date created") {
+                        $dateCreatedIndex = $i
+                        break
+                    }
+                }
+                if ($dateCreatedIndex -eq -1) { $dateCreatedIndex = 4 }
+
+                $files = $folderItem.GetFolder.Items() | Where-Object { $_.Name -like "*.MP4" }
+                foreach ($f in $files) {
+                    $createDateStr = $folder.GetDetailsOf($f, $dateCreatedIndex)
+                    if ($createDateStr) {
+                        # 去除隱藏字元並整理字串
+                        $cleanDateStr = $createDateStr.Replace("?", "").Trim()
+                        $sortKey = $cleanDateStr
+                        
+                        # 💡 核心修復：手動解析日期字串，支援 "2023/8/3 上午 10:17"
+                        if ($cleanDateStr -match "(\d+)[\-/](\d+)[\-/](\d+)\s*(上午|下午|AM|PM)\s*(\d+):(\d+)") {
+                            $year  = [int]$matches[1]
+                            $month = [int]$matches[2]
+                            $day   = [int]$matches[3]
+                            $ampm  = $matches[4]
+                            $hour  = [int]$matches[5]
+                            $min   = [int]$matches[6]
+                            
+                            if ($ampm -eq "下午" -or $ampm -eq "PM") {
+                                if ($hour -lt 12) { $hour += 12 }
+                            } elseif ($ampm -eq "上午" -or $ampm -eq "AM") {
+                                if ($hour -eq 12) { $hour = 0 }
+                            }
+                            # 生成可排序字串 (YYYYMMDDHHMM)
+                            $sortKey = "{0:D4}{1:D2}{2:D2}{3:D2}{4:D2}" -f $year, $month, $day, $hour, $min
+                        }
+                        
+                        $allFiles += [PSCustomObject]@{
+                            Item    = $f
+                            SortKey = $sortKey
+                            RawDate = $cleanDateStr
+                            Name    = $f.Name
+                        }
+                    }
+                }
+            }
+            
+            if ($allFiles.Count -eq 0) { throw "在 GoPro 中找不到任何 MP4 影片。" }
+            
+            # 依據 SortKey 降冪排序，取得最新檔案
+            $latest = $allFiles | Sort-Object SortKey -Descending | Select-Object -First 1
+            $latestFile = $latest.Item
+            
+            $destPath = Join-Path (Get-Location) "video_output"
+            if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Path $destPath }
+            
+            $destFolder = $shell.Namespace($destPath)
+            $destFolder.CopyHere($latestFile, 16)
+            
+            # 等待檔案出現在目標路徑
+            $targetFile = Join-Path $destPath $latest.Name
+            $timeout = 0
+            while (!(Test-Path $targetFile) -and $timeout -lt 60) { 
+                Start-Sleep -Seconds 1 
+                $timeout++
+            }
+            
+            if (Test-Path $targetFile) {
+                Write-Host "SUCCESS:$($latest.Name)"
+            } else {
+                throw "複製逾時，檔案未出現在目標資料夾。"
+            }
+        } catch {
             Write-Host "ERROR:$($_.Exception.Message)"
-        }}
+        }
         """
+        ps = ps_template.replace("GOPRO_MATCH_TOKEN", match_token)
         try:
             r = subprocess.run(["powershell", "-Command", ps], capture_output=True, text=True, encoding='cp950')
             output = r.stdout.strip()
             if "SUCCESS:" in output: 
-                return True, f"✅ USB 下載成功: {output.split('SUCCESS:')[1]}"
+                fname = output.split('SUCCESS:')[1]
+                full_path = Path.cwd() / "video_output" / fname
+                return True, f"✅ USB 下載成功！檔案儲存於: {full_path}"
             else:
                 return False, f"USB 失敗: {output}"
         except Exception as e:
             return False, f"USB 執行出錯: {e}"
 
     def connect_windows_wifi(self, ssid, password):
+        # 1. 先嘗試刪除舊的同名設定檔，避免衝突
+        subprocess.run(f'netsh wlan delete profile name="{ssid}"', shell=True, capture_output=True)
+        
+        # 2. 建立新的設定檔 XML
         xml = f"""<?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>{ssid}</name><SSIDConfig><SSID><name>{ssid}</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>{password}</keyMaterial></sharedKey></security></MSM></WLANProfile>"""
         try:
             p = Path.cwd() / "gp_temp.xml"
             p.write_text(xml)
+            
+            # 3. 新增設定檔
             subprocess.run(f'netsh wlan add profile filename="{p}"', shell=True, capture_output=True)
-            subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True)
             p.unlink()
+            
+            # 4. 斷開目前連線，確保 Windows 會切換
+            subprocess.run('netsh wlan disconnect', shell=True, capture_output=True)
+            time.sleep(1)
+            
+            # 5. 執行連線
+            subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True)
             return True
-        except: return False
+        except Exception as e:
+            self.log(f"⚠️ Wi-Fi 指令執行失敗: {e}")
+            return False
 
     def closeEvent(self, event):
         new_config = {
-            "local_wifi_ssid": self.input_ssid.text(),
-            "local_wifi_pass": self.input_pass.text(),
-            "gopro_ip": self.input_gopro_ip.text(),
             "ap_ssid": self.input_ap_ssid.text(),
             "ap_pass": self.input_ap_pass.text()
         }
