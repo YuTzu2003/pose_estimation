@@ -41,3 +41,13 @@ def get_conn():
 
 def release_conn(conn):
     db_pool.release_conn(conn)
+
+from contextlib import contextmanager
+
+@contextmanager
+def db_session():
+    conn = db_pool.get_conn()
+    try:
+        yield conn
+    finally:
+        db_pool.release_conn(conn)

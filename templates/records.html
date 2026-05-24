@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}選手紀錄 · AI步頻與動作數據分析{% endblock %}
 {% block extra_head %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     .cursor-pointer { cursor: pointer; }
     .player-card:hover {
@@ -402,5 +401,5 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='records.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/records.js') }}"></script>
 {% endblock %}

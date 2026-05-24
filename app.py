@@ -15,7 +15,6 @@ from service.record import record_bp
 from service.compare import compare_bp
 from service.line_notify import line_notify_bp
 from service.analysis import analysis_bp
-from modules.pipeline.video_compat import make_ios_playable_mp4
 import threading
 
 class CustomFormatter(logging.Formatter):
@@ -80,8 +79,6 @@ def media(filename):
         full_path.lower().endswith('.mp4')
         and any(suffix in lower_name for suffix in ('_result.mp4', '_gait.mp4', '_gait_v2.mp4'))
     )
-    if is_generated_video:
-        make_ios_playable_mp4(full_path)
 
     mimetype = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
     if full_path.lower().endswith('.mp4'):
