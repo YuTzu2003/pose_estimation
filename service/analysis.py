@@ -41,6 +41,9 @@ def upload():
     athlete = request.form.get('athlete', '').strip()
     session_name = request.form.get('session', '').strip()
     note = request.form.get('note', '').strip()
+    scale_reference = request.form.get('scale_reference', '').strip()
+    scale_pixels = request.form.get('scale_pixels', '').strip()
+
     if not athlete or not session_name:
         return jsonify({'error': '請填寫選手與場次標註'}), 400
     record_id = "Rec_" + uuid.uuid4().hex[:8]
@@ -81,6 +84,27 @@ def upload():
         else:
             update_progress(job_id, 60, f"IMU錯誤: {err}")
             return jsonify({'error': err}), 400
+
+    # 建立初步紀錄與專案資料夾
+    frame_start = 0
+    frame_end = 0
+    if person_records and len(person_records) > 0:
+        frame_start = int(person_records[0][0])
+        frame_end = int(person_records[0][1])
+    
+    project_folder = f"jobs/{record_id}"
+    conn = get_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""INSERT INTO Record (Record_id, Player_id, Session_name, Note, Project_Folder, Frame_Start, Frame_End, Scale_Reference, Scale_Pixels, Created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())""", 
+                       (record_id, athlete, session_name, note, project_folder, frame_start, frame_end, scale_reference or None, scale_pixels or None))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Database error during initial record creation: {e}")
+    finally:
+        release_conn(conn)
+
     update_progress(job_id, 100, "上傳與偵測完成！")
     return jsonify({
         'record_id': record_id, 
@@ -186,24 +210,26 @@ def analyze():
         traceback.print_exc()
         update_progress(job_id, 60, f"分析失敗: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    full_note = note or ""
+
     frame_start = 0
     frame_end = 0
     if person_records and len(person_records) > 0:
         frame_start = int(person_records[0][0])
         frame_end = int(person_records[0][1])
-    project_folder = f"jobs/{record_id}"
+    
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("""INSERT INTO Record (Record_id, Player_id, Session_name, Note, Project_Folder, Frame_Start, Frame_End, Created_at) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE())""", 
-                       (record_id, athlete, session_name, full_note, project_folder, frame_start, frame_end))
+        # 更新已存在的紀錄
+        cursor.execute("""UPDATE Record SET Frame_Start = ?, Frame_End = ?, Session_name = ?, Note = ?, Scale_Reference = ?, Scale_Pixels = ? WHERE Record_id = ?""", 
+                       (frame_start, frame_end, session_name, note, scale_info.get('reference'), scale_info.get('pixels'), record_id))
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Database error: {e}")
+        print(f"Database error during record update: {e}")
     finally:
-        release_conn(conn)   
+        release_conn(conn)
+
     update_progress(job_id, 100, "處理完成！")
     video_url = None
     if result_video_path: video_url = f"/static/{result_video_path}"

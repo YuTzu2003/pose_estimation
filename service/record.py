@@ -27,13 +27,13 @@ def get_all_records():
         cursor = conn.cursor()
         if player_id:
             cursor.execute("""
-                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
+                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End, R.Scale_Reference, R.Scale_Pixels FROM Record R
                 LEFT JOIN Player P ON R.Player_id = P.Player_id
                 WHERE R.Player_id = ?
                 ORDER BY R.Created_at DESC""", (player_id,))
         else:
             cursor.execute("""
-                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
+                SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End, R.Scale_Reference, R.Scale_Pixels FROM Record R
                 LEFT JOIN Player P ON R.Player_id = P.Player_id
                 ORDER BY R.Created_at DESC""")
         
@@ -69,7 +69,9 @@ def get_all_records():
                 'pose_csv': pose_csv,
                 'date': row[6].strftime('%Y-%m-%d %H:%M') if row[6] else '',
                 'frame_start': row[7],
-                'frame_end': row[8]
+                'frame_end': row[8],
+                'scale_reference': row[9],
+                'scale_pixels': row[10]
             })
         return jsonify(records), 200
     except Exception as e:
@@ -83,7 +85,7 @@ def get_record_details(record_id):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End FROM Record R
+            SELECT R.Record_id, R.Player_id, P.Name, R.Session_name, R.Note, R.Project_Folder, R.Created_at, R.Frame_Start, R.Frame_End, R.Scale_Reference, R.Scale_Pixels FROM Record R
             LEFT JOIN Player P ON R.Player_id = P.Player_id
             WHERE R.Record_id = ?""", (record_id,))
         row = cursor.fetchone()
@@ -158,6 +160,8 @@ def get_record_details(record_id):
             'date': row[6].strftime('%Y-%m-%d %H:%M') if row[6] else '',
             'frame_start': row[7],
             'frame_end': row[8],
+            'scale_reference': row[9],
+            'scale_pixels': row[10],
             'pose_data': pose_data,
             'imu_data': imu_data
         }
