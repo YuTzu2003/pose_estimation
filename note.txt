@@ -6,7 +6,7 @@ main.py --目前最完整
 
 0523test.py --收集數據應該是怪怪的
 
-gopro_control.py --寫死的藍芽
+gopro_control.py --寫死的藍芽，但wifi gopro可以自動關閉然後連線
 
 usb_transfer_test.py --單純只有靠usb收集數據
 

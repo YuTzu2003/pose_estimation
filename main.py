@@ -259,10 +259,16 @@ class XsensManager(QThread):
             self.log_signal.emit("⚠️ Xsens 未連線，無法記錄。")
             return
         
-        # 如果還在忙，等待一下
-        if self.is_logging:
+        # 💡 強制確保舊的執行緒已經結束
+        if self.is_logging or (hasattr(self, 'logging_thread') and self.logging_thread.is_alive()):
+            self.log_signal.emit("⏳ 正在清理上一次錄製的資源，請稍候...")
             self.should_stop = True
-            time.sleep(0.5)
+            if hasattr(self, 'logging_thread'):
+                self.logging_thread.join(timeout=2.0)
+        
+        # 徹底清空所有感測器的緩存，確保從這一刻開始抓新資料
+        for cb in self.mtw_callbacks:
+            cb.clear_buffer()
 
         self.is_logging = True
         self.should_stop = False
@@ -275,6 +281,11 @@ class XsensManager(QThread):
         files = {}
         start_counters = {}
         packet_counts = {}
+        
+        # 進入迴圈前再次清空，確保絕對乾淨
+        for cb in self.mtw_callbacks:
+            cb.clear_buffer()
+
         try:
             output_dir = Path.cwd() / "xsens_output"
             output_dir.mkdir(exist_ok=True)
@@ -289,10 +300,8 @@ class XsensManager(QThread):
                 writers[cb.index] = w
                 files[cb.index] = f
                 packet_counts[cb.index] = 0
-                cb.clear_buffer()
-                self.log_signal.emit(f"📝 正在建立 CSV: {fname}")
             
-            self.log_signal.emit(f"🔴 [Xsens] 同步記錄中 (共 {len(self.mtw_callbacks)} 個感測器)...")
+            self.log_signal.emit(f"🔴 [Xsens] 開始同步記錄 (共 {len(self.mtw_callbacks)} 個感測器)...")
             
             last_progress_update = time.time()
             while not self.should_stop:
@@ -322,9 +331,8 @@ class XsensManager(QThread):
                         packet_counts[cb.index] += 1
                     except: continue
                 
-                # 每 5 秒回報一次進度，避免洗版
                 if time.time() - last_progress_update > 5:
-                    status_msg = "📊 記錄進度: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
+                    status_msg = "📊 記錄中: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
                     self.log_signal.emit(status_msg)
                     last_progress_update = time.time()
 
@@ -337,12 +345,13 @@ class XsensManager(QThread):
                 try: f.close()
                 except: pass
             self.is_logging = False
-            self.log_signal.emit(f"✅ Xsens 記錄已停止。檔案儲存於: {output_dir}")
-            for idx, count in packet_counts.items():
-                self.log_signal.emit(f"   └─ 感測器 {idx}: 共存入 {count} 筆數據")
+            self.log_signal.emit(f"✅ Xsens 資料儲存完畢。")
 
     def stop_logging(self):
         self.should_stop = True
+        # 💡 主動等待執行緒結束，確保呼叫端拿回主導權時，檔案已經關閉
+        if hasattr(self, 'logging_thread'):
+            self.logging_thread.join(timeout=1.0)
 
     def cleanup(self):
         self.stop_logging()
@@ -770,32 +779,58 @@ class GoProXsensApp(QWidget):
 
     @asyncSlot()
     async def start_all(self):
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(False) # 暫時全鎖
+        
+        self.log("⏳ 正在啟動 Xsens 記錄執行緒...")
         self.xsens.start_logging()
+        
+        # 給 Xsens 一點點啟動時間
+        await asyncio.sleep(0.5)
+        
         try:
+            self.log("🔴 正在發送 GoPro 開始錄影指令...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
             self.log("🔴 同步錄製中...")
-            self.btn_start.setEnabled(False)
             self.btn_stop.setEnabled(True)
             self.status_label.setText("狀態: 正在錄製")
             self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
         except Exception as e:
             self.log(f"❌ 啟動失敗: {e}")
             self.xsens.stop_logging()
+            self.btn_start.setEnabled(True)
 
     @asyncSlot()
     async def stop_all(self):
+        self.btn_stop.setEnabled(False)
+        self.btn_start.setEnabled(False)
+        
         try:
+            self.log("⬛ 正在發送 GoPro 停止錄影指令...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
+            
+            # 等一下再送喚醒訊號，避免相機死機
+            await asyncio.sleep(1.0)
+            self.log("📡 正在喚醒 GoPro Wi-Fi (供下載使用)...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
             self.log("⬛ 錄影已停止")
-        except: pass
+        except Exception as e:
+            self.log(f"⚠️ GoPro 停止指令異常: {e}")
+
+        # 確保 Xsens 檔案寫入完全關閉
+        self.log("⏳ 正在儲存 Xsens 數據...")
         self.xsens.stop_logging()
+        
+        # 全面解鎖按鈕
+        await asyncio.sleep(0.5)
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_download_wifi.setEnabled(True)
         self.btn_download_usb.setEnabled(True)
+        self.btn_reset_xsens.setEnabled(True) # 提醒歸零
         self.status_label.setText("狀態: 錄製完成")
         self.status_label.setStyleSheet("color: #dcdcdc; font-weight: bold;")
+        self.log("💡 提示：若要進行下一次測量，請點擊「🔄 方向歸零」後再點擊「開始」。")
 
     @asyncSlot()
     async def download_via_wifi(self):
