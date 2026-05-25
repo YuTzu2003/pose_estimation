@@ -43,10 +43,22 @@ document.addEventListener('DOMContentLoaded', () => {
         fileNameDisplay.textContent = fileInput.files[0].name;
         fileNameDisplay.style.color = 'var(--fg)';
       } else {
-        fileNameDisplay.textContent = '未選取';
+        fileNameDisplay.textContent = '未選取檔案';
         fileNameDisplay.style.color = 'var(--muted)';
       }
       toggleAutoMeasureBtn();
+    });
+  }
+
+  if (imuInput && imuFileNameDisplay) {
+    imuInput.addEventListener('change', () => {
+      if (imuInput.files.length > 0) {
+        imuFileNameDisplay.textContent = imuInput.files[0].name;
+        imuFileNameDisplay.style.color = 'var(--fg)';
+      } else {
+        imuFileNameDisplay.textContent = '未選取檔案';
+        imuFileNameDisplay.style.color = 'var(--muted)';
+      }
     });
   }
 
