@@ -557,10 +557,14 @@ class GoProXsensApp(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
         
-        title = QLabel("GoPro & Xsens")
+        title = QLabel("GoPro & Xsens同步資料擷取與管理系統")
         title.setObjectName("header_title")
-        subtitle = QLabel("Synchronized Data Collection & Management System")
+        title.setAlignment(Qt.AlignCenter)
+        
+        subtitle = QLabel("虎科大 人工智慧暨巨量資料實驗室 (先進運動表現實驗室)")
         subtitle.setObjectName("header_subtitle")
+        subtitle.setAlignment(Qt.AlignCenter)
+        
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
         main_layout.addWidget(header_widget)
@@ -626,9 +630,9 @@ class GoProXsensApp(QWidget):
         af = QFormLayout(ap_box)        
         self.input_ap_ssid = QLineEdit(self.config["ap_ssid"])
         self.input_ap_pass = QLineEdit(self.config["ap_pass"])
-        lbs_ssid = QLabel("熱點 SSID:")
+        lbs_ssid = QLabel("熱點SSID:")
         lbs_ssid.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lbs_pass = QLabel("熱點密碼:")
+        lbs_pass = QLabel("熱點密碼：")
         lbs_pass.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         af.addRow(lbs_ssid, self.input_ap_ssid)
         af.addRow(lbs_pass, self.input_ap_pass)
