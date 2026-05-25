@@ -53,6 +53,16 @@ def save_config(config):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        import os
+        base_path = sys._MEIPASS
+    except Exception:
+        import os
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # ========================================================
 # 📡 GoPro UUIDs & Commands
 # ========================================================
@@ -266,7 +276,7 @@ class XsensManager(QThread):
             self.log_signal.emit("Xsens 未連線，無法記錄。")
             return
         
-        # 💡 強制確保舊的執行緒已經結束
+        # 強制確保舊的執行緒已經結束
         if self.is_logging or (hasattr(self, 'logging_thread') and self.logging_thread.is_alive()):
             self.log_signal.emit("正在清理上一次錄製的資源，請稍候...")
             self.should_stop = True
@@ -297,7 +307,7 @@ class XsensManager(QThread):
             output_dir = Path.cwd() / "xsens_output"
             output_dir.mkdir(exist_ok=True)
             
-            # 💡 格式化日期時間：例如 20260525_141858
+            # 格式化日期時間：例如 20260525_141858
             time_str = time.strftime("%Y%m%d_%H%M%S")
             
             for cb in self.mtw_callbacks:
@@ -360,7 +370,7 @@ class XsensManager(QThread):
 
     def stop_logging(self):
         self.should_stop = True
-        # 💡 主動等待執行緒結束，確保呼叫端拿回主導權時，檔案已經關閉
+        # 主動等待執行緒結束，確保呼叫端拿回主導權時，檔案已經關閉
         if hasattr(self, 'logging_thread'):
             self.logging_thread.join(timeout=1.0)
 
@@ -534,7 +544,7 @@ class GoProXsensApp(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("GoPro & Xsens Control Hub")
-        self.setWindowIcon(QIcon("logo.png"))
+        self.setWindowIcon(QIcon(resource_path("logo.png")))
         self.setMinimumSize(950, 950) # Increased width slightly for larger text
         
         main_layout = QVBoxLayout()
@@ -613,12 +623,15 @@ class GoProXsensApp(QWidget):
         gl.addWidget(self.btn_fetch_ap)
 
         ap_box = QWidget()
-        af = QFormLayout(ap_box)
-        af.setLabelAlignment(Qt.AlignRight)
+        af = QFormLayout(ap_box)        
         self.input_ap_ssid = QLineEdit(self.config["ap_ssid"])
         self.input_ap_pass = QLineEdit(self.config["ap_pass"])
-        af.addRow("熱點 SSID:", self.input_ap_ssid)
-        af.addRow("熱點密碼:", self.input_ap_pass)
+        lbs_ssid = QLabel("熱點 SSID:")
+        lbs_ssid.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbs_pass = QLabel("熱點密碼:")
+        lbs_pass.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        af.addRow(lbs_ssid, self.input_ap_ssid)
+        af.addRow(lbs_pass, self.input_ap_pass)
         gl.addWidget(ap_box)
 
         gopro_gb.setLayout(gl)
@@ -773,7 +786,7 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def fetch_gopro_ap_info(self):
         if not self.gopro_client or not self.gopro_client.is_connected: return
-        self.log("📡 正在從相機讀取熱點資訊...")
+        self.log("正在從相機讀取熱點資訊...")
         try:
             ssid_bytes = await self.gopro_client.read_gatt_char(WIFI_SSID_UUID)
             pass_bytes = await self.gopro_client.read_gatt_char(WIFI_PASS_UUID)
@@ -876,7 +889,7 @@ class GoProXsensApp(QWidget):
             
             self.log("正在喚醒 GoPro Wi-Fi (供下載使用)...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
-            self.log("⬛ 錄影已停止")
+            self.log("錄影已停止")
         except Exception as e:
             self.log(f"GoPro 停止指令異常: {e}")
 
@@ -997,7 +1010,7 @@ class GoProXsensApp(QWidget):
                 self.log("等待 Windows 辨識裝置 (5秒)...")
                 await asyncio.sleep(5.0)
             
-            # 💡 核心修復：使用 executor 在背景執行，避免阻塞 Event Loop 導致藍牙斷線！
+            # 核心修復：使用 executor 在背景執行，避免阻塞 Event Loop 導致藍牙斷線！
             self.log("正在複製檔案，請勿拔除傳輸線...")
             success, msg = await asyncio.get_event_loop().run_in_executor(None, self._usb_download_logic)
             
@@ -1007,7 +1020,7 @@ class GoProXsensApp(QWidget):
                 self.log(f"USB 下載未成功: {msg}")
                 self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
 
-            # 💡 下載完成後，立即將相機切回攝影模式
+            # 下載完成後，立即將相機切回攝影模式
             if self.gopro_client and self.gopro_client.is_connected:
                 self.log("正在將 GoPro 恢復至攝影模式...")
                 await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
