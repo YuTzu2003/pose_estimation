@@ -148,7 +148,7 @@ class XsensManager(QThread):
 
     def run(self):
         if not xda:
-            self.log_signal.emit("❌ Xsens SDK 未安裝。")
+            self.log_signal.emit("Xsens SDK 未安裝。")
             return
         if self.mode == "discover":
             self._run_discovery()
@@ -157,7 +157,7 @@ class XsensManager(QThread):
 
     def _run_discovery(self):
         try:
-            self.log_signal.emit("🔍 開始掃描頻道 (11-25)，請確保感測器已開機...")
+            self.log_signal.emit("開始掃描頻道 (11-25)，請確保感測器已開機...")
             self.control = xda.XsControl_construct()
             master_port = xda.XsScanner_scanPort("COM3", xda.XBR_Invalid)
             if master_port.empty():
@@ -167,7 +167,7 @@ class XsensManager(QThread):
                         master_port = p
                         break
             if master_port.empty():
-                self.log_signal.emit("❌ 找不到接收器。")
+                self.log_signal.emit("找不到接收器。")
                 self.discovery_finished.emit(-1)
                 return
             self.control.openPort(master_port.portName(), master_port.baudrate())
@@ -188,19 +188,19 @@ class XsensManager(QThread):
                 if found_channel != -1: break
             self.control.close()
             if found_channel != -1:
-                self.log_signal.emit(f"✅ 在頻道 {found_channel} 找到感測器！")
+                self.log_signal.emit(f"在頻道 {found_channel} 找到感測器！")
                 self.radio_channel = found_channel
                 self.discovery_finished.emit(found_channel)
             else:
-                self.log_signal.emit("❌ 掃描結束，未找到感測器。")
+                self.log_signal.emit("掃描結束，未找到感測器。")
                 self.discovery_finished.emit(-1)
         except Exception as e:
-            self.log_signal.emit(f"❌ 掃描出錯: {e}")
+            self.log_signal.emit(f"掃描出錯: {e}")
             self.discovery_finished.emit(-1)
 
     def _run_connect(self):
         try:
-            self.log_signal.emit(f"🚀 正在連線頻道 {self.radio_channel}...")
+            self.log_signal.emit(f"正在連線頻道 {self.radio_channel}...")
             self.control = xda.XsControl_construct()
             master_port = xda.XsScanner_scanPort("COM3", xda.XBR_Invalid)
             is_master = not master_port.empty() and (master_port.deviceId().isWirelessMaster() or master_port.deviceId().isAwindaXStation())
@@ -212,11 +212,11 @@ class XsensManager(QThread):
                         is_master = True
                         break
             if not is_master:
-                self.log_signal.emit("❌ 找不到接收器。")
+                self.log_signal.emit("找不到接收器。")
                 self.connection_finished.emit(False)
                 return
             if not self.control.openPort(master_port.portName(), master_port.baudrate()):
-                self.log_signal.emit("❌ 無法開啟連接埠。")
+                self.log_signal.emit("無法開啟連接埠。")
                 self.connection_finished.emit(False)
                 return
             self.master = self.control.device(master_port.deviceId())
@@ -236,7 +236,7 @@ class XsensManager(QThread):
                 if timeout % 10 == 0:
                     self.status_signal.emit(f"等待感測器連線... ({timeout/10:.1f}s)")
             if len(self.master_cb.get_wireless_mtws()) == 0:
-                self.log_signal.emit("❌ 感測器連線逾時。")
+                self.log_signal.emit("感測器連線逾時。")
                 self.connection_finished.emit(False)
                 return
             mtws = self.master_cb.get_wireless_mtws()
@@ -250,7 +250,7 @@ class XsensManager(QThread):
             self.connection_finished.emit(True)
             self.status_signal.emit(f"Xsens: CH{self.radio_channel} 已連線")
         except Exception as e:
-            self.log_signal.emit(f"❌ Xsens 錯誤: {str(e)}")
+            self.log_signal.emit(f"Xsens 錯誤: {str(e)}")
             self.connection_finished.emit(False)
 
     def reset_orientation(self):
@@ -263,12 +263,12 @@ class XsensManager(QThread):
 
     def start_logging(self):
         if not self._is_connected:
-            self.log_signal.emit("⚠️ Xsens 未連線，無法記錄。")
+            self.log_signal.emit("Xsens 未連線，無法記錄。")
             return
         
         # 💡 強制確保舊的執行緒已經結束
         if self.is_logging or (hasattr(self, 'logging_thread') and self.logging_thread.is_alive()):
-            self.log_signal.emit("⏳ 正在清理上一次錄製的資源，請稍候...")
+            self.log_signal.emit("正在清理上一次錄製的資源，請稍候...")
             self.should_stop = True
             if hasattr(self, 'logging_thread'):
                 self.logging_thread.join(timeout=2.0)
@@ -312,7 +312,7 @@ class XsensManager(QThread):
                 files[cb.index] = f
                 packet_counts[cb.index] = 0
             
-            self.log_signal.emit(f"🔴 [Xsens] 開始同步記錄 (共 {len(self.mtw_callbacks)} 個感測器)...")
+            self.log_signal.emit(f"[Xsens] 開始同步記錄 (共 {len(self.mtw_callbacks)} 個感測器)...")
             
             last_progress_update = time.time()
             while not self.should_stop:
@@ -343,20 +343,20 @@ class XsensManager(QThread):
                     except: continue
                 
                 if time.time() - last_progress_update > 5:
-                    status_msg = "📊 記錄中: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
+                    status_msg = "記錄中: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
                     self.log_signal.emit(status_msg)
                     last_progress_update = time.time()
 
                 if not has_data:
                     time.sleep(0.001)
         except Exception as e:
-            self.log_signal.emit(f"❌ Xsens 記錄錯誤: {e}")
+            self.log_signal.emit(f"Xsens 記錄錯誤: {e}")
         finally:
             for f in files.values(): 
                 try: f.close()
                 except: pass
             self.is_logging = False
-            self.log_signal.emit(f"✅ Xsens 資料儲存完畢。")
+            self.log_signal.emit(f"Xsens 資料儲存完畢。")
 
     def stop_logging(self):
         self.should_stop = True
@@ -573,14 +573,14 @@ class GoProXsensApp(QWidget):
         xl = QVBoxLayout()
         xl.setSpacing(12)
         xbl = QHBoxLayout()
-        self.btn_xsens_discover = QPushButton("🔍 頻道掃描")
+        self.btn_xsens_discover = QPushButton("頻道掃描")
         self.btn_xsens_discover.clicked.connect(self.discover_xsens)
-        self.btn_xsens_connect = QPushButton("⚡ 快速連線")
+        self.btn_xsens_connect = QPushButton("快速連線")
         self.btn_xsens_connect.clicked.connect(self.connect_xsens)
         xbl.addWidget(self.btn_xsens_discover)
         xbl.addWidget(self.btn_xsens_connect)
         xl.addLayout(xbl)
-        self.btn_reset_xsens = QPushButton("🔄 方向歸零 (Alignment)")
+        self.btn_reset_xsens = QPushButton("方向歸零")
         self.btn_reset_xsens.setEnabled(False)
         self.btn_reset_xsens.clicked.connect(self.reset_xsens)
         xl.addWidget(self.btn_reset_xsens)
@@ -593,12 +593,12 @@ class GoProXsensApp(QWidget):
         gl.setSpacing(15)
         
         hbl_gopro = QHBoxLayout()
-        self.btn_gopro_connect = QPushButton("1. 建立藍牙連線")
+        self.btn_gopro_connect = QPushButton("建立藍牙連線")
         self.btn_gopro_connect.setObjectName("btn_gopro_connect")
         self.btn_gopro_connect.setFixedHeight(45)
         self.btn_gopro_connect.clicked.connect(self.connect_gopro)
         
-        self.btn_gopro_reset = QPushButton("🔄 重置連線")
+        self.btn_gopro_reset = QPushButton("重置連線")
         self.btn_gopro_reset.setFixedWidth(120)
         self.btn_gopro_reset.setFixedHeight(45)
         self.btn_gopro_reset.clicked.connect(self.force_reset_gopro)
@@ -607,7 +607,7 @@ class GoProXsensApp(QWidget):
         hbl_gopro.addWidget(self.btn_gopro_reset, 1)
         gl.addLayout(hbl_gopro)
 
-        self.btn_fetch_ap = QPushButton("2. 讀取相機熱點資訊")
+        self.btn_fetch_ap = QPushButton("讀取相機熱點資訊")
         self.btn_fetch_ap.setEnabled(False)
         self.btn_fetch_ap.clicked.connect(self.fetch_gopro_ap_info)
         gl.addWidget(self.btn_fetch_ap)
@@ -651,14 +651,14 @@ class GoProXsensApp(QWidget):
         dl = QVBoxLayout()
         dl.setSpacing(12)
         
-        self.btn_download_wifi = QPushButton("📡 Wi-Fi 下載 (需先讀取熱點資訊)")
+        self.btn_download_wifi = QPushButton("Wi-Fi 下載")
         self.btn_download_wifi.setObjectName("btn_download_wifi")
         self.btn_download_wifi.setEnabled(False)
         self.btn_download_wifi.setFixedHeight(50)
         self.btn_download_wifi.clicked.connect(self.download_via_wifi)
         dl.addWidget(self.btn_download_wifi)
 
-        self.btn_download_usb = QPushButton("🔌 USB 下載")
+        self.btn_download_usb = QPushButton("USB 下載")
         self.btn_download_usb.setObjectName("btn_download_usb")
         self.btn_download_usb.setEnabled(False)
         self.btn_download_usb.setFixedHeight(50)
@@ -730,7 +730,7 @@ class GoProXsensApp(QWidget):
 
     def on_xsens_discovered(self, channel):
         self.btn_xsens_discover.setEnabled(True)
-        if channel != -1: self.log(f"✅ 發現 Xsens 於頻道 {channel}")
+        if channel != -1: self.log(f"發現 Xsens 於頻道 {channel}")
 
     def on_xsens_connected(self, success):
         self.btn_xsens_discover.setEnabled(True)
@@ -739,7 +739,7 @@ class GoProXsensApp(QWidget):
             self.check_ready_state()
 
     def reset_xsens(self):
-        if self.xsens.reset_orientation(): self.log("✅ Xsens 歸零成功")
+        if self.xsens.reset_orientation(): self.log("Xsens 歸零成功")
 
     @asyncSlot()
     async def connect_gopro(self):
@@ -752,7 +752,7 @@ class GoProXsensApp(QWidget):
                 if gopro: break
             
             if not gopro:
-                self.log("❌ 未找到 GoPro。提示：若插著 USB 且螢幕顯示「USB 已連接」，請先拔掉線再連線。")
+                self.log("未找到 GoPro。提示：若插著 USB 且螢幕顯示「USB 已連接」，請先拔掉線再連線。")
                 self.btn_gopro_connect.setEnabled(True)
                 return
             
@@ -763,11 +763,11 @@ class GoProXsensApp(QWidget):
             except: pass
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
-            self.log("🎉 GoPro 藍牙連線成功")
+            self.log("GoPro 藍牙連線成功")
             self.btn_fetch_ap.setEnabled(True)
             self.check_ready_state()
         except Exception as e:
-            self.log(f"❌ GoPro 連線失敗: {e}")
+            self.log(f"GoPro 連線失敗: {e}")
             self.btn_gopro_connect.setEnabled(True)
 
     @asyncSlot()
@@ -781,9 +781,9 @@ class GoProXsensApp(QWidget):
             password = pass_bytes.decode('utf-8').strip('\x00')
             self.input_ap_ssid.setText(ssid)
             self.input_ap_pass.setText(password)
-            self.log(f"✅ 讀取成功！SSID: {ssid}")
+            self.log(f"讀取成功！SSID: {ssid}")
         except Exception as e:
-            self.log(f"⚠️ 讀取熱點資訊失敗: {e}")
+            self.log(f"讀取熱點資訊失敗: {e}")
 
     def check_ready_state(self):
         gopro_ready = self.gopro_client and self.gopro_client.is_connected
@@ -806,23 +806,23 @@ class GoProXsensApp(QWidget):
         # 1. 快速啟動嘗試 (最快路徑)
         if self.gopro_client and self.gopro_client.is_connected:
             try:
-                self.log("🔴 正在快速啟動錄影...")
+                self.log("正在快速啟動錄影...")
                 # 嘗試直接錄影，不重連藍牙以節省時間
                 await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
                 
                 # 同時啟動 Xsens
                 self.xsens.start_logging()
                 
-                self.log("🔴 同步錄製中...")
+                self.log("同步錄製中...")
                 self.btn_stop.setEnabled(True)
                 self.status_label.setText("狀態: 正在錄製")
                 self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
                 return
             except Exception:
-                self.log("⏳ 快速啟動未響應，進入深度恢復程序...")
+                self.log("快速啟動未響應，進入深度恢復程序...")
 
         # 2. 深度恢復程序 (只有在快速啟動失敗或 USB 下載後才會執行)
-        self.log("🚀 執行硬體重新同步 (約需 3-5 秒)...")
+        self.log("執行硬體重新同步 (約需 3-5 秒)...")
         
         # 確保 Xsens 先啟動
         self.xsens.start_logging()
@@ -846,7 +846,7 @@ class GoProXsensApp(QWidget):
                 await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
                 
                 await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
-                self.log("🔴 同步錄製中...")
+                self.log("同步錄製中...")
                 self.btn_stop.setEnabled(True)
                 self.status_label.setText("狀態: 正在錄製")
                 self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
@@ -854,7 +854,7 @@ class GoProXsensApp(QWidget):
                 throw("藍牙重連失敗")
 
         except Exception as e:
-            self.log(f"❌ 啟動失敗: {e}")
+            self.log(f"啟動失敗: {e}")
             self.xsens.stop_logging()
             self.btn_start.setEnabled(True)
 
@@ -864,24 +864,24 @@ class GoProXsensApp(QWidget):
         self.btn_start.setEnabled(False)
         
         try:
-            self.log("⬛ 正在發送 GoPro 停止錄影指令...")
+            self.log("正在發送 GoPro 停止錄影指令...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
             
             # 等一下再送喚醒訊號，避免相機死機
             await asyncio.sleep(1.0)
             
-            self.log("🔑 重新授權 API 控制權限...")
+            self.log("重新授權 API 控制權限...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
             
-            self.log("📡 正在喚醒 GoPro Wi-Fi (供下載使用)...")
+            self.log("正在喚醒 GoPro Wi-Fi (供下載使用)...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
             self.log("⬛ 錄影已停止")
         except Exception as e:
-            self.log(f"⚠️ GoPro 停止指令異常: {e}")
+            self.log(f"GoPro 停止指令異常: {e}")
 
         # 確保 Xsens 檔案寫入完全關閉
-        self.log("⏳ 正在儲存 Xsens 數據...")
+        self.log("正在儲存 Xsens 數據...")
         self.xsens.stop_logging()
         
         # 全面解鎖按鈕
@@ -893,38 +893,38 @@ class GoProXsensApp(QWidget):
         self.btn_reset_xsens.setEnabled(True) # 提醒歸零
         self.status_label.setText("狀態: 錄製完成")
         self.status_label.setStyleSheet("color: #dcdcdc; font-weight: bold;")
-        self.log("💡 提示：若要進行下一次測量，請點擊「🔄 方向歸零」後再點擊「開始」。")
+        self.log("提示：若要進行下一次測量，請點擊「方向歸零」後再點擊「開始」。")
 
     @asyncSlot()
     async def download_via_wifi(self):
         self.btn_download_wifi.setEnabled(False)
-        self.log("🚀 啟動 Wi-Fi 自動切換與下載流程...")
+        self.log("啟動 Wi-Fi 自動切換與下載流程...")
         
         ssid, password = self.input_ap_ssid.text(), self.input_ap_pass.text()
         if not ssid:
-            self.log("❌ 錯誤：未設定 AP SSID，請先點擊「讀取相機熱點資訊」。")
+            self.log("錯誤：未設定 AP SSID，請先點擊「讀取相機熱點資訊」。")
             self.btn_download_wifi.setEnabled(True)
             return
 
         # 1. 偵測目前環境，如果已經連著就直接下載
         gopro_ip = self.get_gopro_gateway_ip()
         if self._ping_gopro(gopro_ip):
-            self.log(f"✅ 偵測到已連線至 GoPro ({gopro_ip})，直接開始下載...")
+            self.log(f"偵測到已連線至 GoPro ({gopro_ip})，直接開始下載...")
             await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
             self.btn_download_wifi.setEnabled(True)
             return
 
         # 2. 執行切換 (使用 gopro_control.py 的邏輯)
         if await self.connect_windows_wifi(ssid, password):
-            self.log("⏳ 等待 Windows 穩定連線 (10秒)...")
+            self.log("等待 Windows 穩定連線 (10秒)...")
             await asyncio.sleep(10)
             
             # 切換完後重新抓一次閘道 IP
             gopro_ip = self.get_gopro_gateway_ip()
-            self.log(f"📡 正在對接相機 IP: {gopro_ip}")
+            self.log(f"正在對接相機 IP: {gopro_ip}")
             await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
         else:
-            self.log("❌ 無法執行 Wi-Fi 切換指令。")
+            self.log("無法執行 Wi-Fi 切換指令。")
         
         self.btn_download_wifi.setEnabled(True)
 
@@ -965,17 +965,17 @@ class GoProXsensApp(QWidget):
             # 2. 新增設定檔
             add_result = subprocess.run(f'netsh wlan add profile filename="{xml_path}"', shell=True, capture_output=True, text=True, encoding='cp950')
             if add_result.returncode != 0:
-                self.log(f"⚠️ 新增設定檔失敗: {add_result.stderr or add_result.stdout}")
+                self.log(f"新增設定檔失敗: {add_result.stderr or add_result.stdout}")
 
             await asyncio.sleep(1) 
 
             # 3. 執行連線
             connect_result = subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True, text=True, encoding='cp950')
             if connect_result.returncode != 0:
-                self.log(f"⚠️ 連線指令失敗: {connect_result.stderr or connect_result.stdout}")
+                self.log(f"連線指令失敗: {connect_result.stderr or connect_result.stdout}")
                 success = False
             else:
-                self.log("✅ 成功送出連線指令！(請確認電腦右下角是否連上)")
+                self.log("成功送出連線指令！(請確認電腦右下角是否連上)")
                 success = True
 
             if xml_path.exists():
@@ -988,38 +988,38 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def download_via_usb(self):
         self.btn_download_usb.setEnabled(False)
-        self.log("🔌 啟動 USB 下載流程...")
+        self.log("啟動 USB 下載流程...")
         
         try:
             if self.gopro_client and self.gopro_client.is_connected:
-                self.log("🔄 正在切換 GoPro 至 USB 傳輸模式 (MTP)...")
+                self.log("正在切換 GoPro 至 USB 傳輸模式 (MTP)...")
                 await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_MTP, response=True)
-                self.log("⏳ 等待 Windows 辨識裝置 (5秒)...")
+                self.log("等待 Windows 辨識裝置 (5秒)...")
                 await asyncio.sleep(5.0)
             
             # 💡 核心修復：使用 executor 在背景執行，避免阻塞 Event Loop 導致藍牙斷線！
-            self.log("⏳ 正在複製檔案，請勿拔除傳輸線...")
+            self.log("正在複製檔案，請勿拔除傳輸線...")
             success, msg = await asyncio.get_event_loop().run_in_executor(None, self._usb_download_logic)
             
             if success:
                 self.log(msg)
             else:
-                self.log(f"⚠️ USB 下載未成功: {msg}")
+                self.log(f"USB 下載未成功: {msg}")
                 self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
 
             # 💡 下載完成後，立即將相機切回攝影模式
             if self.gopro_client and self.gopro_client.is_connected:
-                self.log("🔄 正在將 GoPro 恢復至攝影模式...")
+                self.log("正在將 GoPro 恢復至攝影模式...")
                 await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
                 await asyncio.sleep(1.0)
                 await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
                 await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
-                self.log("✅ 相機狀態已還原，可隨時開始新的錄製。")
+                self.log("相機狀態已還原，可隨時開始新的錄製。")
             else:
-                self.log("⚠️ 傳輸期間藍牙可能中斷，下次錄影前將嘗試自動重連。")
+                self.log("傳輸期間藍牙可能中斷，下次錄影前將嘗試自動重連。")
 
         except Exception as e:
-            self.log(f"❌ USB 操作出錯: {e}")
+            self.log(f"USB 操作出錯: {e}")
             
         self.btn_download_usb.setEnabled(True)
 
@@ -1050,13 +1050,13 @@ class GoProXsensApp(QWidget):
             logger.info(f"[Download] {m}")
 
         try:
-            tlog("⏳ 正在對接相機服務...")
+            tlog("正在對接相機服務...")
             for _ in range(3): session.get(f"http://{gopro_ip}/gopro/camera/keep_alive", timeout=1)
             res = session.get(f"http://{gopro_ip}:8080/gopro/media/list", timeout=5)
             if res.status_code == 200:
                 media_data = res.json()
                 if 'media' not in media_data or not media_data['media']:
-                    tlog("ℹ️ 相機內目前沒有影片檔案")
+                    tlog("相機內目前沒有影片檔案")
                     return False
                 
                 # 攤平所有資料夾中的檔案，以便進行全域排序
@@ -1072,7 +1072,7 @@ class GoProXsensApp(QWidget):
                             })
                 
                 if not all_files:
-                    tlog("ℹ️ 找不到任何 MP4 影片")
+                    tlog("找不到任何 MP4 影片")
                     return False
 
                 # 依照 mod (建立時間) 由新到舊排序
@@ -1081,7 +1081,7 @@ class GoProXsensApp(QWidget):
                 
                 folder = latest['dir']
                 file_name = latest['n']
-                tlog(f"🎬 發現全相機最新影片 (依日期): {file_name}")
+                tlog(f"發現全相機最新影片 (依日期): {file_name}")
                 
                 url = f"http://{gopro_ip}:8080/videos/DCIM/{folder}/{file_name}"
                 save_path = Path.cwd() / file_name
@@ -1095,15 +1095,15 @@ class GoProXsensApp(QWidget):
                             f.write(chunk)
                             downloaded += len(chunk)
                             if time.time() - last_update > 2:
-                                tlog(f"⬇️ 已下載: {downloaded/1e6:.1f}MB / {total/1e6:.1f}MB")
+                                tlog(f"已下載: {downloaded/1e6:.1f}MB / {total/1e6:.1f}MB")
                                 last_update = time.time()
                 out = Path.cwd() / "video_output"
                 out.mkdir(exist_ok=True)
                 shutil.move(str(save_path), str(out / file_name))
-                tlog(f"🎉 下載完成: {file_name}")
+                tlog(f"下載完成: {file_name}")
                 return True
         except Exception as e:
-            tlog(f"❌ HTTP 下載出錯: {e}")
+            tlog(f"HTTP 下載出錯: {e}")
         return False
 
     def _usb_download_logic(self):
@@ -1127,7 +1127,7 @@ class GoProXsensApp(QWidget):
             foreach ($folderItem in $goproFolders) {
                 $folder = $folderItem.GetFolder
                 
-                # 💡 尋找多個可能的時間屬性：4=日期, 5=拍攝日期, 10=建立日期, 12=修改日期
+                # 尋找多個可能的時間屬性：4=日期, 5=拍攝日期, 10=建立日期, 12=修改日期
                 $dateIndices = @(4, 5, 10, 12)
                 
                 $files = $folderItem.GetFolder.Items() | Where-Object { $_.Name -like "*.MP4" }
@@ -1168,7 +1168,7 @@ class GoProXsensApp(QWidget):
                         }
                     }
                     
-                    # 💡 增加檔名權重：GX010005 一定比 GX010004 新 (在同天內)
+                    # 增加檔名權重：GX010005 一定比 GX010004 新 (在同天內)
                     $nameKey = $f.Name
                     
                     $allFiles += [PSCustomObject]@{
@@ -1183,7 +1183,7 @@ class GoProXsensApp(QWidget):
             
             if ($allFiles.Count -eq 0) { throw "在 GoPro 中找不到任何 MP4 影片。" }
             
-            # 💡 雙重排序：先比時間 (SortKey)，時間一樣比檔名 (NameKey)
+            # 雙重排序：先比時間 (SortKey)，時間一樣比檔名 (NameKey)
             $latest = $allFiles | Sort-Object SortKey, NameKey -Descending | Select-Object -First 1
             $latestFile = $latest.Item
             
@@ -1220,7 +1220,7 @@ class GoProXsensApp(QWidget):
             if "SUCCESS:" in output: 
                 fname = output.split('SUCCESS:')[1]
                 full_path = Path.cwd() / "video_output" / fname
-                return True, f"✅ USB 下載成功！檔案儲存於: {full_path}"
+                return True, f"USB 下載成功！檔案儲存於: {full_path}"
             else:
                 return False, f"USB 失敗: {output}"
         except Exception as e:
@@ -1228,16 +1228,16 @@ class GoProXsensApp(QWidget):
 
     @asyncSlot()
     async def force_reset_gopro(self):
-        self.log("🔄 正在執行 GoPro 硬重置連線...")
+        self.log("正在執行 GoPro 硬重置連線...")
         self.btn_gopro_reset.setEnabled(False)
         try:
             if self.gopro_client:
                 await self.gopro_client.disconnect()
                 await asyncio.sleep(1.0)
             await self.connect_gopro()
-            self.log("✅ GoPro 連線已重置")
+            self.log("GoPro 連線已重置")
         except Exception as e:
-            self.log(f"⚠️ 重置失敗: {e}")
+            self.log(f"重置失敗: {e}")
         self.btn_gopro_reset.setEnabled(True)
 
     def closeEvent(self, event):
