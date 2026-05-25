@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from modules.db import get_conn, release_conn
 import pandas as pd
+import numpy as np
 import os
 import matplotlib
 import matplotlib.pyplot as plt
@@ -83,6 +84,20 @@ def compare_charts():
         df_a = load_data(id_a, folder_a)
         df_b = load_data(id_b, folder_b)
 
+        # Pre-calculate virtual columns if needed
+        if compare_type == 'imu' and metric == 'acc_integral':
+            def calc_integral(df):
+                if df is not None and 'Acc_Res' in df.columns:
+                    # (data1 + data2) * 0.0083 / 2
+                    acc_res = df['Acc_Res'].values
+                    dt = 0.0083
+                    integral = np.zeros(len(df))
+                    if len(df) > 1:
+                        integral[1:] = (acc_res[:-1] + acc_res[1:]) * dt / 2.0
+                    df['Acc_Integral'] = integral
+            calc_integral(df_a)
+            calc_integral(df_b)
+
         # Map Metrics to Columns
         def get_cols(df, m, t):
             if df is None: return []
@@ -100,6 +115,7 @@ def compare_charts():
                 if m == 'gyr_x': return ['Gyr_X']
                 if m == 'gyr_y': return ['Gyr_Y']
                 if m == 'gyr_z': return ['Gyr_Z']
+                if m == 'acc_integral': return ['Acc_Integral'] if 'Acc_Integral' in df.columns else []
                 return ['Acc_Res'] if 'Acc_Res' in df.columns else []
 
         cols_a = get_cols(df_a, metric, compare_type)

@@ -456,6 +456,16 @@ def get_imu_plot(record_id):
             plt.plot(time_x, df['Gyr_Z'], label='Gyr Z', alpha=0.8)
             title = "Combined Angular Velocity (X, Y, Z)"
             ylabel = "deg/s"
+        elif plot_type == 'acc_integral':
+            # User formula: (data1 + data2) * 0.0083 / 2
+            acc_res = df['Acc_Res'].values
+            dt = 0.0083
+            integral_vals = (acc_res[:-1] + acc_res[1:]) * dt / 2.0
+            # Time for these values starts from the second record (index 1)
+            time_integral = time_x[1:]
+            plt.plot(time_integral, integral_vals, color='purple', label='Integrated Acc')
+            title = "Integrated Acceleration (Velocity Change)"
+            ylabel = "m/s"
         elif plot_type.startswith('acc_'):
             axis = plot_type.split('_')[1].upper()
             plt.plot(time_x, df[f'Acc_{axis}'], label=f'Acc {axis}', color='C0')

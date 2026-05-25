@@ -242,7 +242,7 @@
       <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg">
           <div class="modal-header bg-dark text-white border-0 py-3">
-            <h5 class="modal-title mono fs-6">IMU 數據視覺化 / IMU VISUALIZATION</h5>
+            <h5 class="modal-title mono fs-6">IMU 數據圖 / IMU VISUALIZATION</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body p-4 bg-light">
@@ -250,6 +250,9 @@
               <div class="btn-group btn-group-sm" role="group">
                 <input type="radio" class="btn-check" name="imuType" id="typeAccRes" value="acc_res" checked>
                 <label class="btn btn-outline-dark" for="typeAccRes">合加速度 (Acc Res)</label>
+
+                <input type="radio" class="btn-check" name="imuType" id="typeAccIntegral" value="acc_integral">
+                <label class="btn btn-outline-dark" for="typeAccIntegral">速度 (Speed)</label>
                 
                 <input type="radio" class="btn-check" name="imuType" id="typeAccXYZ" value="acc_xyz">
                 <label class="btn btn-outline-dark" for="typeAccXYZ">加速度 (Acc XYZ)</label>
