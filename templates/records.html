@@ -192,28 +192,6 @@
       <!-- Full Width Stacked Charts -->
       <div class="row g-4 mt-2">
         <div class="col-12">
-          <!-- Pose Chart Box -->
-          <div class="tile mb-4" id="posePlotTile">
-            <div class="tile-num">[02] POSE CHART</div>
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-              <h6 class="fw-bold mb-0">骨幹變化軌跡</h6>
-              <div class="d-flex align-items-center gap-2">
-                <label class="small text-muted mono text-nowrap">SELECT PART:</label>
-                <select class="form-select form-select-sm w-auto" id="partSelect" style="font-size: 0.85rem; min-width: 180px;"></select>
-              </div>
-            </div>
-            <div class="chart-box d-flex align-items-center justify-content-center overflow-hidden" style="min-height: 350px; background: #fff;">
-              <img id="posePlot" src="" class="img-fluid d-none w-100">
-              <div id="plotSpinner" class="spinner-border text-muted"></div>
-              <div id="detailPoseNoData" class="text-center py-4 d-none">
-                <div class="small text-muted mono">無部位分析數據</div>
-              </div>
-            </div>
-            <div class="mt-2 text-end">
-              <a id="downloadPose" href="#" class="btn btn-xs btn-outline-dark" download>下載骨幹數據</a>
-            </div>
-          </div>
-
           <!-- IMU Chart Box -->
           <div class="tile d-none mb-4" id="imuPlotTile">
             <div class="tile-num">[03] IMU CHART</div>
@@ -247,9 +225,29 @@
             </div>
           </div>
         </div>
+        <!-- Pose Chart Box -->
+        <div class="tile mb-4" id="posePlotTile">
+            <div class="tile-num">[02] POSE CHART</div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+              <h6 class="fw-bold mb-0">骨幹變化軌跡</h6>
+              <div class="d-flex align-items-center gap-2">
+                <label class="small text-muted mono text-nowrap">SELECT PART:</label>
+                <select class="form-select form-select-sm w-auto" id="partSelect" style="font-size: 0.85rem; min-width: 180px;"></select>
+              </div>
+            </div>
+            <div class="chart-box d-flex align-items-center justify-content-center overflow-hidden" style="min-height: 350px; background: #fff;">
+              <img id="posePlot" src="" class="img-fluid d-none w-100">
+              <div id="plotSpinner" class="spinner-border text-muted"></div>
+              <div id="detailPoseNoData" class="text-center py-4 d-none">
+                <div class="small text-muted mono">無部位分析數據</div>
+              </div>
+            </div>
+            <div class="mt-2 text-end">
+              <a id="downloadPose" href="#" class="btn btn-xs btn-outline-dark" download>下載骨幹數據</a>
+            </div>
+          </div>
       </div>
     </section>
-
   </main>
 
   <!-- Append Data Modal -->
