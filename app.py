@@ -1,12 +1,7 @@
 import os
-import uuid
 import logging
 import sys
-import time
 import mimetypes
-import re
-import pandas as pd
-import numpy as np
 from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, Response, abort
 from werkzeug.utils import secure_filename, safe_join
 from modules.db import get_conn, release_conn
@@ -15,7 +10,6 @@ from service.record import record_bp
 from service.compare import compare_bp
 from service.line_notify import line_notify_bp
 from service.analysis import analysis_bp
-import threading
 
 class CustomFormatter(logging.Formatter):
     def format(self, record):
@@ -74,54 +68,18 @@ def media(filename):
     if not full_path or not os.path.isfile(full_path):
         abort(404)
 
-    lower_name = os.path.basename(full_path).lower()
-    is_generated_video = (
-        full_path.lower().endswith('.mp4')
-        and any(suffix in lower_name for suffix in ('_result.mp4', '_gait.mp4', '_gait_v2.mp4'))
-    )
+    user_agent = request.headers.get('User-Agent', '').lower()
+    is_mobile = any(keyword in user_agent for keyword in ['iphone', 'ipad', 'android', 'mobile', 'macintosh'])
+    
+    if is_mobile and full_path.lower().endswith('.mp4') and not full_path.lower().endswith('.ios.mp4'):
+        ios_version = full_path.replace('.mp4', '.ios.mp4')
+        if os.path.exists(ios_version):
+            full_path = ios_version
 
     mimetype = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
     if full_path.lower().endswith('.mp4'):
         mimetype = 'video/mp4'
-
-    file_size = os.path.getsize(full_path)
-    range_header = request.headers.get('Range')
-    if not range_header:
-        response = send_file(full_path, mimetype=mimetype, conditional=True)
-        response.headers['Accept-Ranges'] = 'bytes'
-        return response
-
-    match = re.match(r'bytes=(\d*)-(\d*)', range_header)
-    if not match:
-        abort(416)
-
-    start_text, end_text = match.groups()
-    if start_text == '' and end_text == '':
-        abort(416)
-
-    if start_text == '':
-        length = int(end_text)
-        start = max(file_size - length, 0)
-        end = file_size - 1
-    else:
-        start = int(start_text)
-        end = int(end_text) if end_text else file_size - 1
-
-    if start >= file_size or end < start:
-        abort(416)
-
-    end = min(end, file_size - 1)
-    length = end - start + 1
-
-    with open(full_path, 'rb') as video_file:
-        video_file.seek(start)
-        data = video_file.read(length)
-
-    response = Response(data, 206, mimetype=mimetype, direct_passthrough=True)
-    response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-    response.headers['Accept-Ranges'] = 'bytes'
-    response.headers['Content-Length'] = str(length)
-    return response
+    return send_file(full_path, mimetype=mimetype, conditional=True)
 
 @app.route('/compare.html')
 def compare():

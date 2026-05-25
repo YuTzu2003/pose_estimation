@@ -1,8 +1,12 @@
 import os
 import shutil
 import subprocess
-import time
+import threading
 import uuid
+import time
+
+# 全局鎖，防止同一時間多個線程轉碼同一個檔案
+_transcode_lock = threading.Lock()
 
 def _find_ffmpeg():
     ffmpeg = shutil.which("ffmpeg")
@@ -15,29 +19,11 @@ def _find_ffmpeg():
     except Exception:
         return None
 
-def _safe_remove(path, retries=3, delay=0.5):
-    """Attempt to remove a file with retries to handle Windows file locks."""
-    if not os.path.exists(path):
-        return
-    for i in range(retries):
-        try:
-            os.remove(path)
-            return
-        except PermissionError:
-            if i < retries - 1:
-                time.sleep(delay)
-            else:
-                print(f"Warning: Could not remove temporary file {path} after {retries} attempts.")
-        except Exception as e:
-            print(f"Error removing {path}: {e}")
-            break
-
 def make_ios_playable_mp4(video_path):
-    """Transcode MP4 output to an iOS-friendly H.264 file when ffmpeg exists."""
-    if not video_path or os.path.splitext(video_path)[1].lower() != ".mp4":
-        return video_path
-
-    if not os.path.exists(video_path):
+    """
+    將 MP4 轉碼為 iOS 友好的 H.264 格式，並解決 Windows 檔案鎖定問題。
+    """
+    if not video_path or not os.path.exists(video_path) or os.path.splitext(video_path)[1].lower() != ".mp4":
         return video_path
 
     ffmpeg = _find_ffmpeg()
@@ -45,55 +31,57 @@ def make_ios_playable_mp4(video_path):
         print("ffmpeg not found; leaving MP4 as written by OpenCV.")
         return video_path
 
-    unique_id = uuid.uuid4().hex[:8]
-    tmp_path = f"{video_path}.{unique_id}.tmp.mp4"
-    command = [
-        ffmpeg,
-        "-y",
-        "-i",
-        video_path,
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-preset",
-        "fast",
-        "-movflags",
-        "+faststart",
-        "-an",
-        tmp_path,
-    ]
-
-    try:
-        # Run ffmpeg
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            print(f"ffmpeg iOS transcode failed: {result.stderr[-1000:]}")
-            _safe_remove(tmp_path)
-            return video_path
-
-        # Success! Now replace the original with the iOS-friendly version.
-        # On Windows, we need to handle cases where the file might be temporarily locked.
-        replaced = False
-        for i in range(5):
-            try:
-                os.replace(tmp_path, video_path)
-                replaced = True
-                break
-            except PermissionError:
-                if i < 4:
-                    time.sleep(0.5)
-                else:
-                    print(f"ffmpeg iOS transcode replace failed after retries: {video_path} is likely in use.")
-            except Exception as e:
-                print(f"Error replacing {video_path}: {e}")
-                break
+    # 使用 Lock 確保線程安全，防止並發轉碼衝突
+    with _transcode_lock:
+        # 使用隨機 ID 作為暫存檔名，避免衝突
+        tmp_path = f"{video_path}.{uuid.uuid4().hex[:8]}.tmp.mp4"
         
-        if not replaced:
-            _safe_remove(tmp_path)
+        # 針對 iOS 優化的 ffmpeg 參數
+        command = [
+            ffmpeg,
+            "-y",
+            "-i", video_path,
+            "-c:v", "libx264",
+            "-profile:v", "high",
+            "-level", "4.1",            # Level 4.1 支援度很高
+            "-pix_fmt", "yuv420p",      # iOS 必備像素格式
+            "-crf", "23",               # 控制品質
+            "-maxrate", "5M",           # 限制最高流量
+            "-bufsize", "10M",
+            "-preset", "fast",
+            "-movflags", "+faststart",  # 讓 iOS 支援邊下邊播
+            "-an",                      # 移除聲音
+            tmp_path,
+        ]
+
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+            # 針對 iOS 的新路徑
+            ios_path = video_path.replace(".mp4", ".ios.mp4")
+
+            # 在 Windows 上，如果檔案正被播放器讀取，os.replace 會失敗 (WinError 32)
+            try:
+                # 嘗試直接取代原檔
+                os.replace(tmp_path, video_path)
+                # 如果取代成功，如果原本有舊的 .ios.mp4 就刪掉
+                if os.path.exists(ios_path):
+                    try: os.remove(ios_path)
+                    except: pass
+                return video_path
+            except PermissionError:
+                print(f"ffmpeg iOS transcode: 檔案正被使用中，改為儲存至 {ios_path}")
+                # 如果無法取代原檔，就存成一個獨立的 .ios.mp4 檔案
+                if os.path.exists(ios_path):
+                    try: os.remove(ios_path)
+                    except: pass
+                os.rename(tmp_path, ios_path)
+                return ios_path
             
-        return video_path
-    except Exception as exc:
-        print(f"ffmpeg iOS transcode skipped due to unexpected error: {exc}")
-        _safe_remove(tmp_path)
-        return video_path
+            return video_path
+        except Exception as exc:
+            print(f"ffmpeg iOS transcode skipped due to exception: {exc}")
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except: pass
+            return video_path
