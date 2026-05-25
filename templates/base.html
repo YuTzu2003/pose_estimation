@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="icon" type="image/x-icon"href="{{ url_for('static', filename='image/logo.png') }}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -14,7 +15,8 @@
   <nav class="app-nav">
     <div class="container-xl">
       <a class="brand" href="{{ url_for('index') }}">
-        <span class="brand-mark">R</span>AI步頻與動作數據分析
+        <img src="{{ url_for('static', filename='image/logo.png') }}" alt="Logo" height="48">
+        AI步頻與動作數據分析
       </a>
       <div class="app-nav-links">
         {# "首頁" link removed per user request, using the brand icon instead #}
