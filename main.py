@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, 
                              QPushButton, QLabel, QTextEdit, QHBoxLayout,
                              QLineEdit, QGroupBox, QFormLayout)
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QMetaObject, Q_ARG, pyqtSlot
 from qasync import QEventLoop, asyncSlot
 from bleak import BleakClient, BleakScanner
@@ -56,9 +57,15 @@ def save_config(config):
 # 📡 GoPro UUIDs & Commands
 # ========================================================
 GOPRO_COMMAND_UUID = "b5f90072-aa8d-11e3-9046-0002a5d5c51b"
+GOPRO_SETTING_UUID = "b5f90074-aa8d-11e3-9046-0002a5d5c51b"
+
 START_RECORDING    = bytearray([0x03, 0x01, 0x01, 0x01])
 STOP_RECORDING     = bytearray([0x03, 0x01, 0x01, 0x00])
 WAKE_WIFI          = bytearray([0x03, 0x17, 0x01, 0x01])
+
+# USB Mode Settings (Setting 114)
+SET_USB_MTP        = bytearray([0x03, 0x72, 0x01, 0x01]) # MTP Mode
+SET_USB_CONNECT    = bytearray([0x03, 0x72, 0x01, 0x00]) # GoPro Connect (Camera) Mode
 
 # Network Management (COHN)
 NM_SERVICE_UUID    = "b5f90090-aa8d-11e3-9046-0002a5d5c51b"
@@ -289,8 +296,12 @@ class XsensManager(QThread):
         try:
             output_dir = Path.cwd() / "xsens_output"
             output_dir.mkdir(exist_ok=True)
+            
+            # 💡 格式化日期時間：例如 20260525_141858
+            time_str = time.strftime("%Y%m%d_%H%M%S")
+            
             for cb in self.mtw_callbacks:
-                fname = f"mtw_{cb.device.deviceId().toXsString()}_{int(time.time())}.csv"
+                fname = f"mtw_{cb.device.deviceId().toXsString()}_{time_str}.csv"
                 full_path = output_dir / fname
                 f = open(full_path, "w", newline="")
                 w = csv.writer(f)
@@ -523,6 +534,7 @@ class GoProXsensApp(QWidget):
 
     def init_ui(self):
         self.setWindowTitle("GoPro & Xsens Control Hub")
+        self.setWindowIcon(QIcon("logo.png"))
         self.setMinimumSize(950, 950) # Increased width slightly for larger text
         
         main_layout = QVBoxLayout()
@@ -580,13 +592,22 @@ class GoProXsensApp(QWidget):
         gl = QVBoxLayout()
         gl.setSpacing(15)
         
-        self.btn_gopro_connect = QPushButton("🔵 1. 建立藍牙連線")
+        hbl_gopro = QHBoxLayout()
+        self.btn_gopro_connect = QPushButton("1. 建立藍牙連線")
         self.btn_gopro_connect.setObjectName("btn_gopro_connect")
         self.btn_gopro_connect.setFixedHeight(45)
         self.btn_gopro_connect.clicked.connect(self.connect_gopro)
-        gl.addWidget(self.btn_gopro_connect)
+        
+        self.btn_gopro_reset = QPushButton("🔄 重置連線")
+        self.btn_gopro_reset.setFixedWidth(120)
+        self.btn_gopro_reset.setFixedHeight(45)
+        self.btn_gopro_reset.clicked.connect(self.force_reset_gopro)
+        
+        hbl_gopro.addWidget(self.btn_gopro_connect, 3)
+        hbl_gopro.addWidget(self.btn_gopro_reset, 1)
+        gl.addLayout(hbl_gopro)
 
-        self.btn_fetch_ap = QPushButton("🔄 2. 讀取相機熱點資訊")
+        self.btn_fetch_ap = QPushButton("2. 讀取相機熱點資訊")
         self.btn_fetch_ap.setEnabled(False)
         self.btn_fetch_ap.clicked.connect(self.fetch_gopro_ap_info)
         gl.addWidget(self.btn_fetch_ap)
@@ -780,21 +801,58 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def start_all(self):
         self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(False) # 暫時全鎖
+        self.btn_stop.setEnabled(False)
         
-        self.log("⏳ 正在啟動 Xsens 記錄執行緒...")
+        # 1. 快速啟動嘗試 (最快路徑)
+        if self.gopro_client and self.gopro_client.is_connected:
+            try:
+                self.log("🔴 正在快速啟動錄影...")
+                # 嘗試直接錄影，不重連藍牙以節省時間
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
+                
+                # 同時啟動 Xsens
+                self.xsens.start_logging()
+                
+                self.log("🔴 同步錄製中...")
+                self.btn_stop.setEnabled(True)
+                self.status_label.setText("狀態: 正在錄製")
+                self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
+                return
+            except Exception:
+                self.log("⏳ 快速啟動未響應，進入深度恢復程序...")
+
+        # 2. 深度恢復程序 (只有在快速啟動失敗或 USB 下載後才會執行)
+        self.log("🚀 執行硬體重新同步 (約需 3-5 秒)...")
+        
+        # 確保 Xsens 先啟動
         self.xsens.start_logging()
         
-        # 給 Xsens 一點點啟動時間
-        await asyncio.sleep(0.5)
-        
         try:
-            self.log("🔴 正在發送 GoPro 開始錄影指令...")
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
-            self.log("🔴 同步錄製中...")
-            self.btn_stop.setEnabled(True)
-            self.status_label.setText("狀態: 正在錄製")
-            self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
+            if not self.gopro_client or not self.gopro_client.is_connected:
+                await self.connect_gopro()
+            else:
+                # 重新同步藍牙控制頻道
+                try:
+                    await self.gopro_client.disconnect()
+                    await asyncio.sleep(0.5)
+                    await self.connect_gopro()
+                except: pass
+
+            if self.gopro_client and self.gopro_client.is_connected:
+                # 強制切換模式
+                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
+                await asyncio.sleep(1.0)
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
+                self.log("🔴 同步錄製中...")
+                self.btn_stop.setEnabled(True)
+                self.status_label.setText("狀態: 正在錄製")
+                self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
+            else:
+                throw("藍牙重連失敗")
+
         except Exception as e:
             self.log(f"❌ 啟動失敗: {e}")
             self.xsens.stop_logging()
@@ -811,6 +869,11 @@ class GoProXsensApp(QWidget):
             
             # 等一下再送喚醒訊號，避免相機死機
             await asyncio.sleep(1.0)
+            
+            self.log("🔑 重新授權 API 控制權限...")
+            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+            
             self.log("📡 正在喚醒 GoPro Wi-Fi (供下載使用)...")
             await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
             self.log("⬛ 錄影已停止")
@@ -926,12 +989,38 @@ class GoProXsensApp(QWidget):
     async def download_via_usb(self):
         self.btn_download_usb.setEnabled(False)
         self.log("🔌 啟動 USB 下載流程...")
-        success, msg = self._usb_download_logic()
-        if success:
-            self.log(msg)
-        else:
-            self.log(f"⚠️ USB 下載未成功: {msg}")
-            self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
+        
+        try:
+            if self.gopro_client and self.gopro_client.is_connected:
+                self.log("🔄 正在切換 GoPro 至 USB 傳輸模式 (MTP)...")
+                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_MTP, response=True)
+                self.log("⏳ 等待 Windows 辨識裝置 (5秒)...")
+                await asyncio.sleep(5.0)
+            
+            # 💡 核心修復：使用 executor 在背景執行，避免阻塞 Event Loop 導致藍牙斷線！
+            self.log("⏳ 正在複製檔案，請勿拔除傳輸線...")
+            success, msg = await asyncio.get_event_loop().run_in_executor(None, self._usb_download_logic)
+            
+            if success:
+                self.log(msg)
+            else:
+                self.log(f"⚠️ USB 下載未成功: {msg}")
+                self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
+
+            # 💡 下載完成後，立即將相機切回攝影模式
+            if self.gopro_client and self.gopro_client.is_connected:
+                self.log("🔄 正在將 GoPro 恢復至攝影模式...")
+                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
+                await asyncio.sleep(1.0)
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                self.log("✅ 相機狀態已還原，可隨時開始新的錄製。")
+            else:
+                self.log("⚠️ 傳輸期間藍牙可能中斷，下次錄影前將嘗試自動重連。")
+
+        except Exception as e:
+            self.log(f"❌ USB 操作出錯: {e}")
+            
         self.btn_download_usb.setEnabled(True)
 
     def _ping_gopro(self, ip):
@@ -1038,58 +1127,68 @@ class GoProXsensApp(QWidget):
             foreach ($folderItem in $goproFolders) {
                 $folder = $folderItem.GetFolder
                 
-                # 尋找「建立日期」的屬性索引
-                $dateCreatedIndex = -1
-                for ($i=0; $i -lt 100; $i++) {
-                    $colName = $folder.GetDetailsOf($null, $i)
-                    if ($colName -eq "建立日期" -or $colName -eq "Date created") {
-                        $dateCreatedIndex = $i
-                        break
-                    }
-                }
-                if ($dateCreatedIndex -eq -1) { $dateCreatedIndex = 4 }
-
+                # 💡 尋找多個可能的時間屬性：4=日期, 5=拍攝日期, 10=建立日期, 12=修改日期
+                $dateIndices = @(4, 5, 10, 12)
+                
                 $files = $folderItem.GetFolder.Items() | Where-Object { $_.Name -like "*.MP4" }
                 foreach ($f in $files) {
-                    $createDateStr = $folder.GetDetailsOf($f, $dateCreatedIndex)
-                    if ($createDateStr) {
-                        # 去除隱藏字元並整理字串
-                        $cleanDateStr = $createDateStr.Replace("?", "").Trim()
-                        $sortKey = $cleanDateStr
-                        
-                        # 💡 核心修復：手動解析日期字串，支援 "2023/8/3 上午 10:17"
-                        if ($cleanDateStr -match "(\d+)[\-/](\d+)[\-/](\d+)\s*(上午|下午|AM|PM)\s*(\d+):(\d+)") {
-                            $year  = [int]$matches[1]
-                            $month = [int]$matches[2]
-                            $day   = [int]$matches[3]
-                            $ampm  = $matches[4]
-                            $hour  = [int]$matches[5]
-                            $min   = [int]$matches[6]
-                            
-                            if ($ampm -eq "下午" -or $ampm -eq "PM") {
-                                if ($hour -lt 12) { $hour += 12 }
-                            } elseif ($ampm -eq "上午" -or $ampm -eq "AM") {
-                                if ($hour -eq 12) { $hour = 0 }
+                    $bestDateStr = ""
+                    $sortKey = "00000000000000"
+                    
+                    # 嘗試從多個屬性中抓取最像日期的字串
+                    foreach ($idx in $dateIndices) {
+                        $tmp = $folder.GetDetailsOf($f, $idx).Replace("?", "").Trim()
+                        if ($tmp -match "\d{4}") { 
+                            $bestDateStr = $tmp
+                            break 
+                        }
+                    }
+
+                    if ($bestDateStr) {
+                        try {
+                            $dt = [datetime]$bestDateStr
+                            $sortKey = $dt.ToString("yyyyMMddHHmmss")
+                        } catch {
+                            $matches = [regex]::Matches($bestDateStr, "\d+")
+                            if ($matches.Count -ge 5) {
+                                $year  = $matches[0].Value
+                                $month = $matches[1].Value.PadLeft(2, '0')
+                                $day   = $matches[2].Value.PadLeft(2, '0')
+                                $hour  = $matches[3].Value.PadLeft(2, '0')
+                                $min   = $matches[4].Value.PadLeft(2, '0')
+                                $sec   = if ($matches.Count -ge 6) { $matches[5].Value.PadLeft(2, '0') } else { "00" }
+                                if ($bestDateStr -match "下午|PM") {
+                                    $h_int = [int]$hour
+                                    if ($h_int -lt 12) { $hour = ($h_int + 12).ToString().PadLeft(2, '0') }
+                                } elseif ($bestDateStr -match "上午|AM") {
+                                    if ($hour -eq "12") { $hour = "00" }
+                                }
+                                $sortKey = "$year$month$day$hour$min$sec"
                             }
-                            # 生成可排序字串 (YYYYMMDDHHMM)
-                            $sortKey = "{0:D4}{1:D2}{2:D2}{3:D2}{4:D2}" -f $year, $month, $day, $hour, $min
                         }
-                        
-                        $allFiles += [PSCustomObject]@{
-                            Item    = $f
-                            SortKey = $sortKey
-                            RawDate = $cleanDateStr
-                            Name    = $f.Name
-                        }
+                    }
+                    
+                    # 💡 增加檔名權重：GX010005 一定比 GX010004 新 (在同天內)
+                    $nameKey = $f.Name
+                    
+                    $allFiles += [PSCustomObject]@{
+                        Item    = $f
+                        SortKey = $sortKey
+                        NameKey = $nameKey
+                        RawDate = $bestDateStr
+                        Name    = $f.Name
                     }
                 }
             }
             
             if ($allFiles.Count -eq 0) { throw "在 GoPro 中找不到任何 MP4 影片。" }
             
-            # 依據 SortKey 降冪排序，取得最新檔案
-            $latest = $allFiles | Sort-Object SortKey -Descending | Select-Object -First 1
+            # 💡 雙重排序：先比時間 (SortKey)，時間一樣比檔名 (NameKey)
+            $latest = $allFiles | Sort-Object SortKey, NameKey -Descending | Select-Object -First 1
             $latestFile = $latest.Item
+            
+            Write-Host "DEBUG: 最新檔案判定為 $($latest.Name) [日期: $($latest.RawDate)]"
+
             
             $destPath = Join-Path (Get-Location) "video_output"
             if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Path $destPath }
@@ -1126,6 +1225,20 @@ class GoProXsensApp(QWidget):
                 return False, f"USB 失敗: {output}"
         except Exception as e:
             return False, f"USB 執行出錯: {e}"
+
+    @asyncSlot()
+    async def force_reset_gopro(self):
+        self.log("🔄 正在執行 GoPro 硬重置連線...")
+        self.btn_gopro_reset.setEnabled(False)
+        try:
+            if self.gopro_client:
+                await self.gopro_client.disconnect()
+                await asyncio.sleep(1.0)
+            await self.connect_gopro()
+            self.log("✅ GoPro 連線已重置")
+        except Exception as e:
+            self.log(f"⚠️ 重置失敗: {e}")
+        self.btn_gopro_reset.setEnabled(True)
 
     def closeEvent(self, event):
         new_config = {

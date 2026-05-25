@@ -49,28 +49,35 @@ def gopro_usb_copy_latest_logic():
             foreach ($f in $files) {
                 $createDateStr = $folder.GetDetailsOf($f, $dateCreatedIndex)
                 if ($createDateStr) {
-                    # 去除隱藏字元並整理字串
                     $cleanDateStr = $createDateStr.Replace("?", "").Trim()
-                    $sortKey = $cleanDateStr
+                    $sortKey = ""
                     
-                    # 💡 核心修復：手動解析日期字串，避開 [DateTime] 轉換錯誤
-                    # 支援 "2023/8/3 上午 10:17" 或 "2023-8-3 下午 02:30"
-                    if ($cleanDateStr -match "(\d+)[\-/](\d+)[\-/](\d+)\s*(上午|下午|AM|PM)\s*(\d+):(\d+)") {
-                        $year  = [int]$matches[1]
-                        $month = [int]$matches[2]
-                        $day   = [int]$matches[3]
-                        $ampm  = $matches[4]
-                        $hour  = [int]$matches[5]
-                        $min   = [int]$matches[6]
-                        
-                        # 24 小時制轉換
-                        if ($ampm -eq "下午" -or $ampm -eq "PM") {
-                            if ($hour -lt 12) { $hour += 12 }
-                        } elseif ($ampm -eq "上午" -or $ampm -eq "AM") {
-                            if ($hour -eq 12) { $hour = 0 }
+                    try {
+                        # 💡 核心修復：改用 try-catch 與類型轉換，避開 TryParse 的引數問題
+                        $dt = [datetime]$cleanDateStr
+                        $sortKey = $dt.ToString("yyyyMMddHHmmss")
+                    } catch {
+                        # 備援解析：手動提取數字
+                        $matches = [regex]::Matches($cleanDateStr, "\d+")
+                        if ($matches.Count -ge 5) {
+                            $year  = $matches[0].Value
+                            $month = $matches[1].Value.PadLeft(2, '0')
+                            $day   = [int]$matches[2].Value.PadLeft(2, '0')
+                            $hour  = $matches[3].Value.PadLeft(2, '0')
+                            $min   = $matches[4].Value.PadLeft(2, '0')
+                            $sec   = if ($matches.Count -ge 6) { $matches[5].Value.PadLeft(2, '0') } else { "00" }
+                            
+                            # 處理 上午/下午
+                            if ($cleanDateStr -match "下午|PM") {
+                                $h_int = [int]$hour
+                                if ($h_int -lt 12) { $hour = ($h_int + 12).ToString().PadLeft(2, '0') }
+                            } elseif ($cleanDateStr -match "上午|AM") {
+                                if ($hour -eq "12") { $hour = "00" }
+                            }
+                            $sortKey = "$year$month$day$hour$min$sec"
+                        } else {
+                            $sortKey = $cleanDateStr
                         }
-                        # 生成可排序字串 (YYYYMMDDHHMM)
-                        $sortKey = "{0:D4}{1:D2}{2:D2}{3:D2}{4:D2}" -f $year, $month, $day, $hour, $min
                     }
                     
                     $allFiles += [PSCustomObject]@{
