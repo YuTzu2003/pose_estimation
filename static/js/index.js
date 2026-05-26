@@ -420,8 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
             person_records: currentAnalysis.person_records,
             scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value },
             athlete: document.getElementById('athlete').value,
-            session: document.getElementById('session').value,
-            note: document.getElementById('note').value
+            session: document.getElementById('session').value
           })
         });
         const result = await res.json();

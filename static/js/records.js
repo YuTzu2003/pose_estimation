@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const scaleText = record.scale_reference ? `${record.scale_reference}m (${record.scale_pixels}px)` : '未設定';
             document.getElementById('detailScaleInfo').textContent = scaleText;
 
-            document.getElementById('detailNote').textContent = record.note || '無備註';
+            document.getElementById('detailNote').value = record.note || '';
             
             const modulesDiv = document.getElementById('detailModules');
             modulesDiv.innerHTML = (record.modules || []).map(m => `<span class="badge bg-dark x-small fw-normal me-1">${m}</span>`).join('');
@@ -155,6 +155,24 @@ document.addEventListener('DOMContentLoaded', () => {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
     }
+
+    // --- Note Saving ---
+    document.getElementById('saveNoteBtn').onclick = () => {
+        const note = document.getElementById('detailNote').value;
+        const btn = document.getElementById('saveNoteBtn');
+        btn.disabled = true; btn.textContent = '儲存中...';
+        fetch(`/api/record/${currentRecordId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_name: currentRecordData.session, note: note })
+        }).then(res => res.json()).then(data => {
+            if (data.message) { 
+                alert('筆記已儲存'); 
+                currentRecordData.note = note;
+            } else alert(data.error);
+        }).finally(() => {
+            btn.disabled = false; btn.textContent = '儲存筆記';
+        });
+    };
 
     // --- Pose Plot ---
     function populatePartSelect(parts) {
@@ -403,15 +421,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const editModal = new bootstrap.Modal(document.getElementById('editModal'));
     document.getElementById('editRecordBtn').onclick = () => {
         document.getElementById('editSession').value = currentRecordData.session;
-        document.getElementById('editNote').value = currentRecordData.note || '';
         editModal.show();
     };
     document.getElementById('saveEditBtn').onclick = () => {
         const session = document.getElementById('editSession').value;
-        const note = document.getElementById('editNote').value;
         fetch(`/api/record/${currentRecordId}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_name: session, note: note })
+            body: JSON.stringify({ session_name: session, note: currentRecordData.note })
         }).then(() => { editModal.hide(); showDetail(currentRecordId); });
     };
 
