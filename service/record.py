@@ -434,9 +434,9 @@ def get_imu_plot(record_id):
         
         # Reset to default style for white background
         plt.style.use('default')
-        plt.figure(figsize=(12, 5))
+        plt.figure(figsize=(10, 4))
         
-        time_x = df['Time']
+        time_x = df.index
         title = "IMU Analysis"
         ylabel = "Value"
 
@@ -478,7 +478,7 @@ def get_imu_plot(record_id):
             ylabel = "deg/s"
 
         plt.title(title)
-        plt.xlabel('Time / Index')
+        plt.xlabel('Frame / Time Index')
         plt.ylabel(ylabel)
         plt.legend(loc='upper right')
         plt.grid(True, linestyle='--', alpha=0.6)
