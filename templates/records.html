@@ -120,9 +120,9 @@
               <video id="detailVideo" controls preload="metadata" playsinline webkit-playsinline class="w-100 h-100"></video>
             </div>
             
-            <div class="d-flex align-items-center gap-3 p-2 bg-light rounded mt-auto">
-              <label class="small text-muted mono ms-2">SPEED:</label>
-              <select id="videoSpeed" class="form-select form-select-sm border-0 bg-transparent w-auto">
+            <div class="d-flex align-items-center gap-2 p-2 bg-light rounded mt-auto">
+              <label class="small text-muted mono ms-2 text-nowrap">SPEED:</label>
+              <select id="videoSpeed" class="form-select form-select-sm border-0 bg-transparent w-auto" style="min-width: 85px; padding-right: 1.5rem;">
                 <option value="1.0" selected>1.0x</option>
                 <option value="0.5">0.5x</option>
                 <option value="0.33">0.33x</option>
@@ -204,6 +204,7 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
               <h6 class="fw-bold mb-0">IMU 運動數據分析</h6>
               <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-xs btn-outline-secondary" id="refreshImuBtn" title="刷新圖表"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
                 <label class="small text-muted mono text-nowrap">DATA TYPE:</label>
                 <select id="imuPlotType" class="form-select form-select-sm w-auto" style="font-size: 0.85rem; min-width: 180px;">
                   <option value="acc_res">合加速度 (Acc Res)</option>
@@ -238,6 +239,7 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
               <h6 class="fw-bold mb-0">骨幹變化軌跡</h6>
               <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-xs btn-outline-secondary" id="refreshPoseBtn" title="刷新圖表"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
                 <label class="small text-muted mono text-nowrap">SELECT PART:</label>
                 <select class="form-select form-select-sm w-auto" id="partSelect" style="font-size: 0.85rem; min-width: 180px;"></select>
               </div>

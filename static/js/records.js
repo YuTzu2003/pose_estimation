@@ -189,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             spinner.classList.add('d-none');
         });
     }
+    document.getElementById('refreshPoseBtn').onclick = updatePosePlot;
 
     // --- IMU Plot ---
     function updateImuPlot() {
@@ -201,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     document.getElementById('imuPlotType').onchange = updateImuPlot;
+    document.getElementById('refreshImuBtn').onclick = updateImuPlot;
     document.getElementById('deleteImuDataBtn').onclick = () => {
         if(confirm('確定刪除 IMU 數據？')) {
             fetch(`/api/record/${currentRecordId}/imu`, { method: 'DELETE' }).then(() => showDetail(currentRecordId));
