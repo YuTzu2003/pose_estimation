@@ -129,9 +129,10 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('請先選擇影片檔案。'); return;
       }
       measureModal.show();
+      // Always use the first video (local or uploaded) for calibration
       if (currentSession.records.length > 0) { 
         measureState.isLocal = false; 
-        loadMeasureFrame(currentSession.activeRecordId || currentSession.records[0].record_id, 0); 
+        loadMeasureFrame(currentSession.records[0].record_id, 0); 
       }
       else { measureState.isLocal = true; setupLocalVideo(); }
     });
@@ -188,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderMeasureCanvas() {
       const img = measureState.bgImage;
+      if (!img.width) return;
       const scale = Math.min(measureCanvas.parentElement.offsetWidth / img.width, 600 / img.height);
       measureState.imgScale = scale;
       measureCanvas.width = img.width * scale; measureCanvas.height = img.height * scale;
@@ -215,18 +217,18 @@ document.addEventListener('DOMContentLoaded', () => {
     measureCanvas.oncontextmenu = (e) => { e.preventDefault(); measureState.points.pop(); renderMeasureCanvas(); };
     measureSlider.oninput = () => { measureFrameText.textContent = `Frame: ${measureSlider.value} / ${measureState.totalFrames - 1}`; };
     measureSlider.onchange = () => { 
-        const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+        const rid = (currentSession.records && currentSession.records.length > 0) ? currentSession.records[0].record_id : null;
         loadMeasureFrame(rid, measureSlider.value); 
     };
     document.getElementById('measurePrevFrame').onclick = () => { 
         if (measureState.currentFrame > 0) {
-            const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+            const rid = (currentSession.records && currentSession.records.length > 0) ? currentSession.records[0].record_id : null;
             loadMeasureFrame(rid, measureState.currentFrame - 1); 
         }
     };
     document.getElementById('measureNextFrame').onclick = () => { 
         if (measureState.currentFrame < measureState.totalFrames - 1) {
-            const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+            const rid = (currentSession.records && currentSession.records.length > 0) ? currentSession.records[0].record_id : null;
             loadMeasureFrame(rid, measureState.currentFrame + 1); 
         }
     };
