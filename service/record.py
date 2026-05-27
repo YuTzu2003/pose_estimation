@@ -6,7 +6,6 @@ from modules.pipeline.peak_smooth import peak_smooth
 from modules.pipeline.step_metrics import run_step
 from modules.pipeline.imu_process import process_imu_data
 import pandas as pd
-import numpy as np
 import os
 import shutil
 import matplotlib
@@ -78,17 +77,6 @@ def fetch_all_records_data(player_id=None):
         return records
     finally:
         release_conn(conn)
-
-@record_bp.route('/api/records', methods=['GET'])
-def get_all_records():
-    player_id = request.args.get('player_id')
-    try:
-        records = fetch_all_records_data(player_id)
-        return jsonify(records), 200
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 def fetch_record_details_data(record_id):
     conn = get_conn()
@@ -192,9 +180,19 @@ def fetch_record_details_data(record_id):
         session_rows = cursor.fetchall()
         session_videos = []
         for s_row in session_rows:
+            s_rec_id = s_row[0]
+            s_proj_folder = s_row[1]
+            s_pose_csv = None
+            s_abs_dir = os.path.join(current_app.root_path, 'static', s_proj_folder)
+            if os.path.exists(s_abs_dir):
+                for f in os.listdir(s_abs_dir):
+                    if f.endswith('_pose.csv'):
+                        s_pose_csv = f"{s_proj_folder}/{f}"
+                        break
             session_videos.append({
-                'id': s_row[0],
-                'project_folder': s_row[1]
+                'id': s_rec_id,
+                'project_folder': s_proj_folder,
+                'pose_csv': s_pose_csv
             })
 
         record_data = {
@@ -224,6 +222,17 @@ def fetch_record_details_data(record_id):
     finally:
         release_conn(conn)
 
+@record_bp.route('/api/records', methods=['GET'])
+def get_all_records():
+    player_id = request.args.get('player_id')
+    try:
+        records = fetch_all_records_data(player_id)
+        return jsonify(records), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @record_bp.route('/api/record/<record_id>', methods=['GET'])
 def get_record_details(record_id):
     try:
@@ -235,46 +244,6 @@ def get_record_details(record_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
-@record_bp.route('/api/player_records/<player_id>', methods=['GET'])
-def get_player_records(player_id):
-    conn = get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT R.Record_id, S.Session_name, S.Created_at, R.Project_Folder, R.Session_id
-            FROM Record R
-            JOIN [Session] S ON R.Session_id = S.Session_id
-            WHERE S.Player_id = ? 
-            ORDER BY S.Created_at DESC
-        """, (player_id,))
-        rows = cursor.fetchall()
-        records = []
-        for r in rows:
-            record_id = r[0]
-            project_folder = r[3]
-            # Reconstruct result video path
-            result_video = None
-            abs_project_dir = os.path.join(current_app.root_path, 'static', project_folder)
-            if os.path.exists(abs_project_dir):
-                for f in os.listdir(abs_project_dir):
-                    if f.startswith(record_id) and any(x in f for x in ['_gait', '_result']):
-                        result_video = f"{project_folder}/{f}"
-                        break
-            
-            records.append({
-                'Record_id': record_id,
-                'Session_name': r[1],
-                'Created_at': r[2].strftime("%Y-%m-%d %H:%M"),
-                'Project_Folder': project_folder,
-                'Result_Video_Path': result_video,
-                'Session_id': r[4]
-            })
-        return jsonify(records)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    finally:
-        release_conn(conn)
 
 @record_bp.route('/api/append_data', methods=['POST'])
 def append_data():
@@ -391,10 +360,11 @@ def delete_record(record_id):
         count = cursor.fetchone()[0]
         if count == 0:
             cursor.execute("DELETE FROM [Session] WHERE Session_id = ?", (session_id,))
+            # Delete whole session folder? Maybe safer to just delete record folder
         
         conn.commit()
         
-        abs_record_dir = os.path.join(current_app.root_path, 'static', project_folder)
+        abs_record_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         if os.path.exists(abs_record_dir):
             shutil.rmtree(abs_record_dir)
             
@@ -417,9 +387,8 @@ def delete_record_imu(record_id):
             
         project_folder = row[0]
         session_id = row[1]
-        abs_project_dir = os.path.join(current_app.root_path, 'static', project_folder)
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
-        # Delete from Record folder
         if os.path.exists(abs_project_dir):
             for f in os.listdir(abs_project_dir):
                 if '_imu' in f:
@@ -431,7 +400,7 @@ def delete_record_imu(record_id):
         s_row = cursor.fetchone()
         if s_row:
             session_folder = s_row[0]
-            abs_session_dir = os.path.join(current_app.root_path, 'static', session_folder)
+            abs_session_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', session_folder)
             if os.path.exists(abs_session_dir):
                 for f in os.listdir(abs_session_dir):
                     if '_imu' in f:
@@ -456,7 +425,7 @@ def get_plot_image(record_id):
             return jsonify({'error': 'Record not found'}), 404
             
         project_folder = row[0]
-        abs_project_dir = os.path.join(current_app.root_path, 'static', project_folder)
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
         # Find pose CSV
         csv_path = None
@@ -508,7 +477,7 @@ def get_imu_plot(record_id):
             
         project_folder = row[0]
         session_id = row[1]
-        abs_project_dir = os.path.join(current_app.root_path, 'static', project_folder)
+        abs_project_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', project_folder)
         
         # Find IMU CSV
         csv_path = None
@@ -519,12 +488,12 @@ def get_imu_plot(record_id):
                     break
         
         if not csv_path:
-            # Fallback to Session Folder
+            # Check Session Folder
             cursor.execute("SELECT Project_Folder FROM [Session] WHERE Session_id = ?", (session_id,))
             s_row = cursor.fetchone()
             if s_row:
                 session_folder = s_row[0]
-                abs_session_dir = os.path.join(current_app.root_path, 'static', session_folder)
+                abs_session_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', session_folder)
                 if os.path.exists(abs_session_dir):
                     for f in os.listdir(abs_session_dir):
                         if f.endswith('_imu.csv'):

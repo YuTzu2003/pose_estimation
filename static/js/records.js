@@ -1,307 +1,162 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Global State ---
-    let allPlayers = [];
-    let currentPlayer = null;
-    let currentRecords = []; // Flattened records
-    let currentSessions = {}; // Grouped by session_id or session_name + date
+    const recordIdInput = document.getElementById('hiddenRecordId');
+    if (!recordIdInput) 
+        return;
 
-    function deleteRecord(recordId) {
-        fetch(`/api/record/${recordId}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-            if (data.message) { 
-                alert('紀錄已刪除'); 
-                if (detailSection.classList.contains('d-none')) {
-                    showRecords(currentPlayer.id, currentPlayer.name);
-                } else {
-                    backToRecords.onclick();
-                    showRecords(currentPlayer.id, currentPlayer.name);
+    const currentRecordId = recordIdInput.value;
+    const currentPlayerId = document.getElementById('hiddenPlayerId').value;
+    const currentProjectFolder = document.getElementById('hiddenProjectFolder').value;
+    const detailVideo = document.getElementById('detailVideo');
+    const videoSpeed = document.getElementById('videoSpeed');
+    initDetailView();
+
+    function initDetailView() {
+        // Init Charts
+        const imuTile = document.getElementById('imuPlotTile');
+
+        if (imuTile && !imuTile.classList.contains('d-none')) {
+            updateImuPlot();
+        }
+
+        // Init Multiple Pose Plots
+        const poseTiles = document.querySelectorAll('.pose-plot-tile');
+        poseTiles.forEach(tile => {
+            if (!tile.classList.contains('d-none')) {
+                const select = tile.querySelector('.part-select');
+                if (select) {
+                    const parts = ['Right_Ankle', 'Left_Ankle', 'R_Knee', 'L_Knee', 'R_Hip', 'L_Hip', 'R_Shoulder', 'L_Shoulder'];
+                    select.innerHTML = '';
+                    parts.forEach(p => { 
+                        const o = document.createElement('option'); o.value = p; o.textContent = p.replace(/_/g,' '); select.appendChild(o); 
+                    });
+
+                    const recId = tile.dataset.recordId;
+                    const updateChart = () => {
+                        const part = select.value;
+                        const img = tile.querySelector('.pose-plot-img');
+                        const spinner = tile.querySelector('.plot-spinner');
+                        const noData = tile.querySelector('.pose-no-data');
+                        if (img) img.classList.add('d-none');
+                        if (noData) noData.classList.add('d-none');
+                        if (spinner) spinner.classList.remove('d-none');
+
+                        fetch(`/api/plot_image/${recId}?part=${part}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data.plot_url && img) { 
+                                    img.src = data.plot_url; 
+                                    img.classList.remove('d-none'); 
+                                } else if (noData) {
+                                    noData.classList.remove('d-none');
+                                }
+                                if (spinner) spinner.classList.add('d-none');
+                            })
+                            .catch(e => {
+                                if (noData) noData.classList.remove('d-none');
+                                if (spinner) spinner.classList.add('d-none');
+                            });
+                    };
+
+                    select.onchange = updateChart;
+                    const refreshBtn = tile.querySelector('.refresh-pose-btn');
+                    if (refreshBtn) refreshBtn.onclick = updateChart;
+
+                    updateChart(); // Initial load
                 }
             }
-            else alert(data.error);
         });
-    }
-
-    let currentRecordId = null;
-    let currentRecordData = null;
-    let currentSessionRecords = [];
-    
-    // --- Elements ---
-    const playerSection = document.getElementById('playerSection');
-    const recordsSection = document.getElementById('recordsSection');
-    const detailSection = document.getElementById('detailSection');
-    const playerList = document.getElementById('playerList');
-    const recordsList = document.getElementById('recordsList');
-    
-    const backToPlayers = document.getElementById('backToPlayers');
-    const backToRecords = document.getElementById('backToRecords');
-    const breadcrumbNav = document.getElementById('breadcrumbNav');
-    
-    const statTotal = document.getElementById('statTotal');
-    const statAthletes = document.getElementById('statAthletes');
-
-    // --- Init ---
-    fetchPlayers();
-    fetchStats();
-
-    function fetchPlayers() {
-        fetch('/get_players').then(res => res.json()).then(data => {
-            allPlayers = data; renderPlayers(data); statAthletes.textContent = data.length;
-        });
-    }
-
-    function fetchStats() {
-        fetch('/api/records').then(res => res.json()).then(data => { 
-            // In session view, we show total sessions
-            const tempSessions = {};
-            data.forEach(r => {
-                const key = r.session_id || `${r.session}_${r.date.split(' ')[0]}`;
-                tempSessions[key] = true;
-            });
-            statTotal.textContent = Object.keys(tempSessions).length; 
-        });
-    }
-
-    function renderPlayers(players) {
-        updateBreadcrumb('home'); playerList.innerHTML = '';
-        players.forEach(p => {
-            const col = document.createElement('div');
-            col.className = 'col-md-4 col-lg-3';
-            col.innerHTML = `
-                <div class="tile player-card h-100 cursor-pointer" data-id="${p.id}">
-                    <div class="tile-num">${p.id}</div>
-                    <h5 class="mb-1 fw-bold">${p.name}</h5>
-                    <div class="x-small text-muted">${p.sport || '未指定運動'}</div>
-                    <div class="mt-2 mono x-small">${p.gender || '-'} | ${p.height || '-'}cm | ${p.weight || '-'}kg</div>
-                </div>`;
-            col.querySelector('.player-card').onclick = () => showRecords(p.id, p.name);
-            playerList.appendChild(col);
-        });
-    }
-
-    function showRecords(playerId, playerName) {
-        currentPlayer = { id: playerId, name: playerName };
-        updateBreadcrumb('records');
-        document.getElementById('currentPlayerName').textContent = playerName;
-        playerSection.classList.add('d-none'); recordsSection.classList.remove('d-none'); detailSection.classList.add('d-none');
-        fetch(`/api/records?player_id=${playerId}`).then(res => res.json()).then(data => {
-            currentRecords = data;
-            groupRecordsIntoSessions(data);
-            renderSessions();
-        });
-    }
-
-    function groupRecordsIntoSessions(records) {
-        currentSessions = {};
-        records.forEach(r => {
-            // Group by session_id if available, fallback to session name + date
-            const key = r.session_id || `${r.session}_${r.date.split(' ')[0]}`;
-            if (!currentSessions[key]) {
-                currentSessions[key] = {
-                    id: key,
-                    name: r.session,
-                    date: r.date,
-                    note: r.note,
-                    records: []
-                };
-            }
-            currentSessions[key].records.push(r);
-        });
-    }
-
-    function renderSessions() {
-        recordsList.innerHTML = '';
-        const sessionKeys = Object.keys(currentSessions).sort((a, b) => {
-            return new Date(currentSessions[b].date) - new Date(currentSessions[a].date);
-        });
-        
-        document.getElementById('statTotal').textContent = sessionKeys.length;
-        
-        sessionKeys.forEach(key => {
-            const s = currentSessions[key];
-            const tile = document.createElement('div');
-            tile.className = 'tile mb-3 py-3 px-4 cursor-pointer';
-            tile.innerHTML = `
-                <div class="d-flex align-items-center gap-4">
-                    <div class="flex-grow-1">
-                        <div class="fw-bold fs-6">${s.name}</div>
-                        <div class="small text-muted mt-1">${s.note || '無備註'}</div>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="mono small text-muted text-end">${s.date}</div>
-                        <span class="badge bg-secondary fw-normal" style="font-size: 0.7rem;">${s.records.length} video</span>
-                    </div>
-                </div>`;
-            tile.onclick = () => showSessionDetail(s.id);
-            recordsList.appendChild(tile);
-        });
-    }
-
-    function showSessionDetail(sessionId) {
-        const session = currentSessions[sessionId];
-        currentSessionRecords = session.records;
-        // Default to showing the first record
-        showDetail(session.records[0].id);
-    }
-
-    function showDetail(recordId) {
-        currentRecordId = recordId;
-        fetch(`/api/record/${recordId}`).then(res => res.json()).then(record => {
-            currentRecordData = record;
-            updateBreadcrumb('detail', record);
-            document.getElementById('detailIdDisplay').textContent = `ID: ${record.id}`;
-            document.getElementById('detailPlayerName').textContent = record.player_name;
-            document.getElementById('detailSession').textContent = record.session;
-            document.getElementById('detailDate').textContent = record.date;
-            
-            // Add session video selector
-            updateVideoSelector();
-
-            // Scale Info instead of frames
-            const scaleText = record.scale_reference ? `${record.scale_reference}m (${record.scale_pixels}px)` : '未設定';
-            document.getElementById('detailScaleInfo').textContent = scaleText;
-
-            document.getElementById('detailNote').value = record.note || '';
-            
-            const modulesDiv = document.getElementById('detailModules');
-            modulesDiv.innerHTML = (record.modules || []).map(m => `<span class="badge bg-dark x-small fw-normal me-1">${m}</span>`).join('');
-            
-            // Video
-            const video = document.getElementById('detailVideo');
-            const videoPath = record.result_video || record.original_video;
-            video.innerHTML = '';
-            if (videoPath) {
-                const source = document.createElement('source');
-                source.src = `/media/${videoPath}?t=${Date.now()}`;
-                source.type = 'video/mp4';
-                video.appendChild(source); video.load();
-                document.getElementById('videoDirectLink').innerHTML = `<a href="/media/${videoPath}" class="btn btn-xs btn-outline-dark" download>下載影片</a>`;
-            }
-
-            // Append Buttons Visibility
-            document.getElementById('appendVideoBtn').classList.toggle('d-none', !!(record.original_video || record.result_video));
-            document.getElementById('appendImuBtn').classList.toggle('d-none', !!record.imu_csv_path);
-
-            // Gait Edit Visibility
-            const hasGait = record.modules && record.modules.some(m => m.includes('Stride & Speed') || m.includes('gait'));
-            document.getElementById('toggleGaitEditBtn').classList.toggle('d-none', !hasGait);
-            if (hasGait) loadPeakData(record.id);
-
-            // Charts
-            const poseTile = document.getElementById('posePlotTile');
-            const imuTile = document.getElementById('imuPlotTile');
-            
-            if (record.pose_csv) {
-                poseTile.classList.remove('d-none');
-                document.getElementById('downloadPose').href = `/static/${record.pose_csv}`;
-                populatePartSelect(['Right_Ankle', 'Left_Ankle', 'R_Knee', 'L_Knee', 'R_Hip', 'L_Hip', 'R_Shoulder', 'L_Shoulder']);
-                updatePosePlot();
-            } else {
-                poseTile.classList.add('d-none');
-            }
-
-            if (record.imu_csv_path) {
-                imuTile.classList.remove('d-none');
-                document.getElementById('downloadImu').href = `/media/${record.imu_csv_path}`;
-                updateImuPlot();
-            } else {
-                imuTile.classList.add('d-none');
-            }
-
-            recordsSection.classList.add('d-none'); detailSection.classList.remove('d-none');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
-    }
-
-    function updateVideoSelector() {
-        let selector = document.getElementById('sessionVideoSelector');
-        if (!selector) {
-            selector = document.createElement('div');
-            selector.id = 'sessionVideoSelector';
-            selector.className = 'mt-3 p-2 bg-light rounded d-flex gap-2 flex-wrap';
-            const videoTile = document.querySelector('#detailSection .col-lg-9 .tile');
-            videoTile.insertBefore(selector, videoTile.querySelector('.ratio').nextSibling);
-        }
-        
-        if (currentSessionRecords.length > 1) {
-            selector.classList.remove('d-none');
-            selector.innerHTML = `<span class="small text-muted mono w-100 mb-1">SESSION VIDEOS:</span>`;
-            currentSessionRecords.forEach((rec, idx) => {
-                const btn = document.createElement('button');
-                btn.className = `btn btn-xs ${rec.id === currentRecordId ? 'btn-dark' : 'btn-outline-dark'}`;
-                btn.textContent = `Video ${idx + 1}`;
-                btn.onclick = () => showDetail(rec.id);
-                selector.appendChild(btn);
-            });
-        } else {
-            selector.classList.add('d-none');
+        const toggleGaitEditBtn = document.getElementById('toggleGaitEditBtn');
+        if (toggleGaitEditBtn && !toggleGaitEditBtn.classList.contains('d-none')) {
+            loadPeakData();
         }
     }
 
     // --- Note Saving ---
-    document.getElementById('saveNoteBtn').onclick = () => {
-        const note = document.getElementById('detailNote').value;
-        const btn = document.getElementById('saveNoteBtn');
-        btn.disabled = true; btn.textContent = '儲存中...';
-        fetch(`/api/record/${currentRecordId}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_name: currentRecordData.session, note: note })
-        }).then(res => res.json()).then(data => {
-            if (data.message) { 
-                alert('筆記已儲存'); 
-                currentRecordData.note = note;
-                // Update in our grouped data as well
-                const sKey = currentRecordData.session_id || `${currentRecordData.session}_${currentRecordData.date.split(' ')[0]}`;
-                if (currentSessions[sKey]) currentSessions[sKey].note = note;
-            } else alert(data.error);
-        }).finally(() => {
-            btn.disabled = false; btn.textContent = '儲存筆記';
-        });
-    };
+    const saveNoteBtn = document.getElementById('saveNoteBtn');
+    if (saveNoteBtn) {
+        saveNoteBtn.onclick = () => {
+            const note = document.getElementById('detailNote').value;
+            saveNoteBtn.disabled = true; saveNoteBtn.textContent = '儲存中...';
+            fetch(`/api/record/${currentRecordId}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: document.getElementById('detailSession').textContent.trim(), note: note })
+            }).then(res => res.json()).then(data => {
+                if (data.message) alert('筆記已儲存');
+                else alert(data.error);
+            }).finally(() => {
+                saveNoteBtn.disabled = false; saveNoteBtn.textContent = '儲存筆記';
+            });
+        };
+    }
 
     // --- Pose Plot ---
     function populatePartSelect(parts) {
-        const s = document.getElementById('partSelect'); s.innerHTML = '';
+        const s = document.getElementById('partSelect'); if (!s) return;
+        s.innerHTML = '';
         parts.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p.replace(/_/g,' '); s.appendChild(o); });
         s.onchange = updatePosePlot;
     }
+    
     function updatePosePlot() {
-        const part = document.getElementById('partSelect').value;
+        const partSelect = document.getElementById('partSelect');
+        if (!partSelect) return;
+        const part = partSelect.value;
         const img = document.getElementById('posePlot'), spinner = document.getElementById('plotSpinner');
-        img.classList.add('d-none'); spinner.classList.remove('d-none');
+        if (img) img.classList.add('d-none'); 
+        if (spinner) spinner.classList.remove('d-none');
         fetch(`/api/plot_image/${currentRecordId}?part=${part}`).then(res => res.json()).then(data => {
-            if (data.plot_url) { img.src = data.plot_url; img.classList.remove('d-none'); }
-            spinner.classList.add('d-none');
+            if (data.plot_url && img) { img.src = data.plot_url; img.classList.remove('d-none'); }
+            if (spinner) spinner.classList.add('d-none');
         });
     }
-    document.getElementById('refreshPoseBtn').onclick = updatePosePlot;
+    const refreshPoseBtn = document.getElementById('refreshPoseBtn');
+    if (refreshPoseBtn) refreshPoseBtn.onclick = updatePosePlot;
 
     // --- IMU Plot ---
     function updateImuPlot() {
-        const type = document.getElementById('imuPlotType').value;
+        const typeSelect = document.getElementById('imuPlotType');
+        if (!typeSelect) return;
+        const type = typeSelect.value;
         const img = document.getElementById('imuPlot'), spinner = document.getElementById('imuPlotSpinner');
-        img.classList.add('d-none'); spinner.classList.remove('d-none');
+        if (img) img.classList.add('d-none'); 
+        if (spinner) spinner.classList.remove('d-none');
         fetch(`/api/imu_plot/${currentRecordId}?type=${type}`).then(res => res.json()).then(data => {
-            if (data.plot_url) { img.src = data.plot_url; img.classList.remove('d-none'); }
-            spinner.classList.add('d-none');
+            if (data.plot_url && img) { img.src = data.plot_url; img.classList.remove('d-none'); }
+            if (spinner) spinner.classList.add('d-none');
         });
     }
-    document.getElementById('imuPlotType').onchange = updateImuPlot;
-    document.getElementById('refreshImuBtn').onclick = updateImuPlot;
-    document.getElementById('deleteImuDataBtn').onclick = () => {
-        if(confirm('確定刪除 IMU 數據？')) {
-            fetch(`/api/record/${currentRecordId}/imu`, { method: 'DELETE' }).then(() => showDetail(currentRecordId));
-        }
-    };
+    const imuPlotType = document.getElementById('imuPlotType');
+    if (imuPlotType) imuPlotType.onchange = updateImuPlot;
+    const refreshImuBtn = document.getElementById('refreshImuBtn');
+    if (refreshImuBtn) refreshImuBtn.onclick = updateImuPlot;
+
+    const deleteImuDataBtn = document.getElementById('deleteImuDataBtn');
+    if (deleteImuDataBtn) {
+        deleteImuDataBtn.onclick = () => {
+            if(confirm('確定刪除 IMU 數據？')) {
+                fetch(`/api/record/${currentRecordId}/imu`, { method: 'DELETE' }).then(() => window.location.reload());
+            }
+        };
+    }
     
-    document.getElementById('deleteCurrentRecord').onclick = () => {
-        if(confirm('確定刪除此影片紀錄？')) {
-            deleteRecord(currentRecordId);
-        }
-    };
+    const deleteCurrentRecord = document.getElementById('deleteCurrentRecord');
+    if (deleteCurrentRecord) {
+        deleteCurrentRecord.onclick = () => {
+            if(confirm('確定刪除此影片紀錄？')) {
+                fetch(`/api/record/${currentRecordId}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                    if (data.message) { 
+                        alert('紀錄已刪除'); 
+                        window.location.href = `/records/${currentPlayerId}`;
+                    }
+                    else alert(data.error);
+                });
+            }
+        };
+    }
 
     // --- Gait Correction ---
-    function loadPeakData(recordId) {
-        const projectFolder = currentRecordData.project_folder;
-        const peaksPath = `/static/${projectFolder}/${currentRecordId}_peaks.csv?t=${Date.now()}`;
+    function loadPeakData() {
+        const peaksPath = `/static/${currentProjectFolder}/${currentRecordId}_peaks.csv?t=${Date.now()}`;
         fetch(peaksPath).then(res => res.text()).then(csvText => {
             const lines = csvText.split('\n');
             if (lines.length < 2) return renderPeakTable([]);
@@ -337,7 +192,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function renderPeakTable(data) {
-        const body = document.getElementById('csvBody'); body.innerHTML = '';
+        const body = document.getElementById('csvBody'); if (!body) return;
+        body.innerHTML = '';
         if (data.length === 0) {
             body.innerHTML = '<tr><td colspan="9" class="text-center py-2 text-muted">無步頻數據</td></tr>';
             return;
@@ -363,6 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addNewPeak = () => {
         const body = document.getElementById('csvBody');
+        if (!body) return;
         if (body.innerHTML.includes('無步頻數據')) body.innerHTML = '';
         const tr = document.createElement('tr'); tr.className = 'peak-row';
         tr.innerHTML = `<td class="text-center text-muted">*</td>
@@ -373,209 +230,233 @@ document.addEventListener('DOMContentLoaded', () => {
         body.appendChild(tr);
     };
 
-    document.getElementById('regenBtn').onclick = async () => {
-        const rows = document.querySelectorAll('.peak-row');
-        const peakData = Array.from(rows).map(r => ({
-            Frame_Right: parseInt(r.querySelector('.peak-frame-r').textContent) || null,
-            X_Right: parseFloat(r.querySelector('.peak-x-r').textContent) || null,
-            Y_Right: parseFloat(r.querySelector('.peak-y-r').textContent) || null,
-            Frame_Left: parseInt(r.querySelector('.peak-frame-l').textContent) || null,
-            X_Left: parseFloat(r.querySelector('.peak-x-l').textContent) || null,
-            Y_Left: parseFloat(r.querySelector('.peak-y-l').textContent) || null
-        }));
-        const btn = document.getElementById('regenBtn'); btn.disabled = true; btn.textContent = '生成中...';
-        try {
-            const res = await fetch('/regenerate_gait', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    record_id: currentRecordId, peak_data: peakData,
-                    scale_info: { reference: currentRecordData.scale_reference, pixels: currentRecordData.scale_pixels },
-                    person_records: [[currentRecordData.frame_start, currentRecordData.frame_end]]
-                })
-            });
-            const data = await res.json();
-            if (res.ok) { alert('生成成功！'); showDetail(currentRecordId); } else alert(data.error);
-        } finally { btn.disabled = false; btn.textContent = '重新生成影片'; }
-    };
+    const regenBtn = document.getElementById('regenBtn');
+    if (regenBtn) {
+        regenBtn.onclick = async () => {
+            const rows = document.querySelectorAll('.peak-row');
+            const peakData = Array.from(rows).map(r => ({
+                Frame_Right: parseInt(r.querySelector('.peak-frame-r').textContent) || null,
+                X_Right: parseFloat(r.querySelector('.peak-x-r').textContent) || null,
+                Y_Right: parseFloat(r.querySelector('.peak-y-r').textContent) || null,
+                Frame_Left: parseInt(r.querySelector('.peak-frame-l').textContent) || null,
+                X_Left: parseFloat(r.querySelector('.peak-x-l').textContent) || null,
+                Y_Left: parseFloat(r.querySelector('.peak-y-l').textContent) || null
+            }));
+            regenBtn.disabled = true; regenBtn.textContent = '生成中...';
+            try {
+                const res = await fetch('/regenerate_gait', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        record_id: currentRecordId, peak_data: peakData,
+                        scale_info: { reference: 1, pixels: 100 }, 
+                        person_records: [[0, 9999]]
+                    })
+                });
+                if (res.ok) { alert('生成成功！'); window.location.reload(); } else { const d = await res.json(); alert(d.error); }
+            } finally { regenBtn.disabled = false; regenBtn.textContent = '重新生成影片'; }
+        };
+    }
 
     // --- Point Picker ---
-    const pickerModal = new bootstrap.Modal(document.getElementById('pickerModal'));
-    const canvas = document.getElementById('pickerCanvas'), ctx = canvas.getContext('2d');
-    let currentPickerIdx = 0, lastPoint = null;
+    const pickerModalEl = document.getElementById('pickerModal');
+    if (pickerModalEl) {
+        const pickerModal = new bootstrap.Modal(pickerModalEl);
+        const canvas = document.getElementById('pickerCanvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            let currentPickerIdx = 0, lastPoint = null;
 
-    document.getElementById('openPickerBtn').onclick = async () => {
-        const loading = document.getElementById('pickerLoading'); loading.classList.remove('d-none');
-        pickerModal.show();
-        currentPickerIdx = 0; updatePickerFrame();
-    };
-
-    async function updatePickerFrame() {
-        const loading = document.getElementById('pickerLoading'); loading.classList.remove('d-none');
-        try {
-            const res = await fetch(`/api/get_frame?record_id=${currentRecordId}&frame_no=${currentPickerIdx}`);
-            const data = await res.json();
-            if (data.success) {
-                const img = new Image(); img.onload = () => {
-                    canvas.width = img.width; canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0); drawCrosshair();
-                    document.getElementById('pickerFrameText').textContent = `Frame: ${currentPickerIdx} / ${data.total_frames - 1}`;
-                    document.getElementById('pickerSlider').max = data.total_frames - 1;
-                    document.getElementById('pickerSlider').value = currentPickerIdx;
-                    loading.classList.add('d-none');
+            const openPickerBtn = document.getElementById('openPickerBtn');
+            if (openPickerBtn) {
+                openPickerBtn.onclick = async () => {
+                    const loading = document.getElementById('pickerLoading'); if (loading) loading.classList.remove('d-none');
+                    pickerModal.show();
+                    currentPickerIdx = 0; updatePickerFrame();
                 };
-                img.src = data.frame_data;
             }
-        } catch(e) { console.error(e); }
-    }
 
-    function drawCrosshair() {
-        if (!lastPoint) return;
-        ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(lastPoint.x - 10, lastPoint.y); ctx.lineTo(lastPoint.x + 10, lastPoint.y); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y - 10); ctx.lineTo(lastPoint.x, lastPoint.y + 10); ctx.stroke();
-    }
+            async function updatePickerFrame() {
+                const loading = document.getElementById('pickerLoading'); if (loading) loading.classList.remove('d-none');
+                try {
+                    const res = await fetch(`/api/get_frame?record_id=${currentRecordId}&frame_no=${currentPickerIdx}`);
+                    const data = await res.json();
+                    if (data.success) {
+                        const img = new Image(); img.onload = () => {
+                            canvas.width = img.width; canvas.height = img.height;
+                            ctx.drawImage(img, 0, 0); drawCrosshair();
+                            document.getElementById('pickerFrameText').textContent = `Frame: ${currentPickerIdx} / ${data.total_frames - 1}`;
+                            document.getElementById('pickerSlider').max = data.total_frames - 1;
+                            document.getElementById('pickerSlider').value = currentPickerIdx;
+                            if (loading) loading.classList.add('d-none');
+                        };
+                        img.src = data.frame_data;
+                    }
+                } catch(e) { console.error(e); }
+            }
 
-    canvas.onclick = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
-        lastPoint = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-        updatePickerFrame();
-        document.getElementById('pickerResultText').textContent = `X: ${Math.round(lastPoint.x)}, Y: ${Math.round(lastPoint.y)}`;
-    };
+            function drawCrosshair() {
+                if (!lastPoint) return;
+                ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(lastPoint.x - 10, lastPoint.y); ctx.lineTo(lastPoint.x + 10, lastPoint.y); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(lastPoint.x, lastPoint.y - 10); ctx.lineTo(lastPoint.x, lastPoint.y + 10); ctx.stroke();
+            }
 
-    document.getElementById('pickerSlider').oninput = (e) => { currentPickerIdx = parseInt(e.target.value); updatePickerFrame(); };
-    document.getElementById('pickerPrevFrame').onclick = () => { if(currentPickerIdx > 0) { currentPickerIdx--; updatePickerFrame(); } };
-    document.getElementById('pickerNextFrame').onclick = () => { currentPickerIdx++; updatePickerFrame(); };
+            canvas.onclick = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+                lastPoint = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+                updatePickerFrame();
+                document.getElementById('pickerResultText').textContent = `X: ${Math.round(lastPoint.x)}, Y: ${Math.round(lastPoint.y)}`;
+            };
 
-    document.getElementById('recordRightBtn').onclick = () => recordPoint('R');
-    document.getElementById('recordLeftBtn').onclick = () => recordPoint('L');
+            document.getElementById('pickerSlider').oninput = (e) => { currentPickerIdx = parseInt(e.target.value); updatePickerFrame(); };
+            document.getElementById('pickerPrevFrame').onclick = () => { if(currentPickerIdx > 0) { currentPickerIdx--; updatePickerFrame(); } };
+            document.getElementById('pickerNextFrame').onclick = () => { currentPickerIdx++; updatePickerFrame(); };
 
-    function recordPoint(side) {
-        if (!lastPoint) { alert('請先在畫面上點選位置'); return; }
-        const body = document.getElementById('csvBody');
-        if (body.innerHTML.includes('無步頻數據')) body.innerHTML = '';
-        const tr = document.createElement('tr'); tr.className = 'peak-row';
-        const valX = parseFloat(lastPoint.x).toFixed(2);
-        const valY = parseFloat(lastPoint.y).toFixed(2);
-        if (side === 'R') {
-            tr.innerHTML = `<td class="text-center text-muted">+R</td>
-                <td contenteditable="true" class="peak-frame-r text-center">${currentPickerIdx}</td>
-                <td contenteditable="true" class="peak-x-r text-center">${valX}</td>
-                <td contenteditable="true" class="peak-y-r text-center">${valY}</td>
-                <td class="text-center"><button class="btn btn-link btn-sm text-danger p-0" onclick="window.clearFoot(this, 'r')"><i class="bi bi-trash"></i></button></td>
-                <td contenteditable="true" class="peak-frame-l text-center"></td><td contenteditable="true" class="peak-x-l text-center"></td><td contenteditable="true" class="peak-y-l text-center"></td>
-                <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
-        } else {
-            tr.innerHTML = `<td class="text-center text-muted">+L</td>
-                <td contenteditable="true" class="peak-frame-r text-center"></td><td contenteditable="true" class="peak-x-r text-center"></td><td contenteditable="true" class="peak-y-r text-center"></td>
-                <td class="text-center"><button class="btn btn-link btn-sm text-danger p-0" onclick="window.clearFoot(this, 'r')"><i class="bi bi-trash"></i></button></td>
-                <td contenteditable="true" class="peak-frame-l text-center">${currentPickerIdx}</td>
-                <td contenteditable="true" class="peak-x-l text-center">${valX}</td>
-                <td contenteditable="true" class="peak-y-l text-center">${valY}</td>
-                <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
-        }
-        body.appendChild(tr);
-        alert(`已記錄${side === 'R' ? '右' : '左'}腳點位於幀 ${currentPickerIdx}`);
-    }
+            document.getElementById('recordRightBtn').onclick = () => recordPoint('R');
+            document.getElementById('recordLeftBtn').onclick = () => recordPoint('L');
 
-    // --- Others ---
-    const appendModal = new bootstrap.Modal(document.getElementById('appendModal'));
-    const appendForm = document.getElementById('appendForm');
-
-    document.getElementById('appendVideoBtn').onclick = () => {
-        document.getElementById('appendRecordId').value = currentRecordId;
-        document.getElementById('appendType').value = 'video';
-        document.getElementById('appendModalTitle').textContent = '補傳分析影片';
-        document.getElementById('appendFileLabel').textContent = '選擇影片檔案 (MP4/MOV)';
-        document.getElementById('appendFileInput').accept = 'video/*';
-        document.getElementById('appendScaleGroup').classList.remove('d-none');
-        appendModal.show();
-    };
-
-    document.getElementById('appendImuBtn').onclick = () => {
-        document.getElementById('appendRecordId').value = currentRecordId;
-        document.getElementById('appendType').value = 'imu';
-        document.getElementById('appendModalTitle').textContent = '補傳 IMU 數據';
-        document.getElementById('appendFileLabel').textContent = '選擇數據檔案 (CSV/XLSX)';
-        document.getElementById('appendFileInput').accept = '.csv, .xls, .xlsx';
-        document.getElementById('appendScaleGroup').classList.add('d-none');
-        appendModal.show();
-    };
-
-    appendForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const type = document.getElementById('appendType').value;
-        const formData = new FormData();
-        formData.append('record_id', document.getElementById('appendRecordId').value);
-        const fileInput = document.getElementById('appendFileInput');
-        if (type === 'video') {
-            formData.append('video', fileInput.files[0]);
-            formData.append('scale_reference', document.getElementById('appendScaleRef').value);
-            formData.append('scale_pixels', document.getElementById('appendScalePx').value);
-        } else { formData.append('imu_file', fileInput.files[0]); }
-        const btn = document.getElementById('submitAppendBtn'); btn.disabled = true; btn.textContent = '上傳中...';
-        try {
-            const res = await fetch('/api/append_data', { method: 'POST', body: formData });
-            if (res.ok) { alert('補傳成功！'); appendModal.hide(); showDetail(currentRecordId); }
-            else { const d = await res.json(); alert('失敗: ' + d.error); }
-        } catch (err) { alert('發生錯誤'); } finally { btn.disabled = false; btn.textContent = '上傳並處理'; }
-    };
-
-    const editModal = new bootstrap.Modal(document.getElementById('editModal'));
-    document.getElementById('editRecordBtn').onclick = () => {
-        document.getElementById('editSession').value = currentRecordData.session;
-        editModal.show();
-    };
-    document.getElementById('saveEditBtn').onclick = () => {
-        const session = document.getElementById('editSession').value;
-        fetch(`/api/record/${currentRecordId}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_name: session, note: currentRecordData.note })
-        }).then(() => { editModal.hide(); showDetail(currentRecordId); });
-    };
-
-    const reanalyzeModal = new bootstrap.Modal(document.getElementById('reanalyzeModal'));
-    document.getElementById('reanalyzeBtn').onclick = () => {
-        document.getElementById('re_scale_ref').value = currentRecordData.scale_reference || 1;
-        document.getElementById('re_scale_px').value = currentRecordData.scale_pixels || 100;
-        reanalyzeModal.show();
-    };
-    document.getElementById('reanalyzeForm').onsubmit = async (e) => {
-        e.preventDefault();
-        const btn = document.getElementById('submitReanalyzeBtn'); btn.disabled = true; btn.textContent = '分析中...';
-        const modules = ['angle'];
-        if(document.getElementById('re_module_track').checked) modules.push('track');
-        if(document.getElementById('re_module_gait').checked) modules.push('gait');
-        try {
-            const res = await fetch('/api/analyze', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    record_id: currentRecordId, job_id: `re_${Date.now()}`,
-                    modules: modules, person_records: [[currentRecordData.frame_start, currentRecordData.frame_end]],
-                    scale_info: { reference: document.getElementById('re_scale_ref').value, pixels: document.getElementById('re_scale_px').value },
-                    athlete: currentRecordData.player_id, session: currentRecordData.session, note: currentRecordData.note
-                })
-            });
-            if(res.ok) { alert('分析完成！'); reanalyzeModal.hide(); showDetail(currentRecordId); }
-        } finally { btn.disabled = false; btn.textContent = '確認執行'; }
-    };
-
-    backToPlayers.onclick = () => { playerSection.classList.remove('d-none'); recordsSection.classList.add('d-none'); updateBreadcrumb('home'); };
-    backToRecords.onclick = () => { recordsSection.classList.remove('d-none'); detailSection.classList.add('d-none'); document.getElementById('detailVideo').pause(); updateBreadcrumb('records'); };
-
-    function updateBreadcrumb(level, record = null) {
-        breadcrumbNav.innerHTML = `<li class="breadcrumb-item"><a href="#" id="pathHome">選手列表</a></li>`;
-        document.getElementById('pathHome').onclick = (e) => { e.preventDefault(); backToPlayers.onclick(); };
-        if (level === 'records' || level === 'detail') {
-            const li = document.createElement('li'); li.className = 'breadcrumb-item';
-            li.innerHTML = `<a href="#" id="pathRecords">${currentPlayer.name}</a>`;
-            breadcrumbNav.appendChild(li);
-            document.getElementById('pathRecords').onclick = (e) => { e.preventDefault(); backToRecords.onclick(); };
-        }
-        if (level === 'detail' && record) {
-            const li = document.createElement('li'); li.className = 'breadcrumb-item active'; li.textContent = record.session;
-            breadcrumbNav.appendChild(li);
+            function recordPoint(side) {
+                if (!lastPoint) { alert('請先在畫面上點選位置'); return; }
+                const body = document.getElementById('csvBody');
+                if (!body) return;
+                if (body.innerHTML.includes('無步頻數據')) body.innerHTML = '';
+                const tr = document.createElement('tr'); tr.className = 'peak-row';
+                const valX = parseFloat(lastPoint.x).toFixed(2);
+                const valY = parseFloat(lastPoint.y).toFixed(2);
+                if (side === 'R') {
+                    tr.innerHTML = `<td class="text-center text-muted">+R</td>
+                        <td contenteditable="true" class="peak-frame-r text-center">${currentPickerIdx}</td>
+                        <td contenteditable="true" class="peak-x-r text-center">${valX}</td>
+                        <td contenteditable="true" class="peak-y-r text-center">${valY}</td>
+                        <td class="text-center"><button class="btn btn-link btn-sm text-danger p-0" onclick="window.clearFoot(this, 'r')"><i class="bi bi-trash"></i></button></td>
+                        <td contenteditable="true" class="peak-frame-l text-center"></td><td contenteditable="true" class="peak-x-l text-center"></td><td contenteditable="true" class="peak-y-l text-center"></td>
+                        <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
+                } else {
+                    tr.innerHTML = `<td class="text-center text-muted">+L</td>
+                        <td contenteditable="true" class="peak-frame-r text-center"></td><td contenteditable="true" class="peak-x-r text-center"></td><td contenteditable="true" class="peak-y-r text-center"></td>
+                        <td class="text-center"><button class="btn btn-link btn-sm text-danger p-0" onclick="window.clearFoot(this, 'r')"><i class="bi bi-trash"></i></button></td>
+                        <td contenteditable="true" class="peak-frame-l text-center">${currentPickerIdx}</td>
+                        <td contenteditable="true" class="peak-x-l text-center">${valX}</td>
+                        <td contenteditable="true" class="peak-y-l text-center">${valY}</td>
+                        <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
+                }
+                body.appendChild(tr);
+                alert(`已記錄${side === 'R' ? '右' : '左'}腳點位於幀 ${currentPickerIdx}`);
+            }
         }
     }
-    document.getElementById('videoSpeed').onchange = (e) => { document.getElementById('detailVideo').playbackRate = parseFloat(e.target.value); };
+
+    // --- Modals Logic ---
+    const appendModalEl = document.getElementById('appendModal');
+    if (appendModalEl) {
+        const appendModal = new bootstrap.Modal(appendModalEl);
+        const appendForm = document.getElementById('appendForm');
+
+        const appendVideoBtn = document.getElementById('appendVideoBtn');
+        if (appendVideoBtn) {
+            appendVideoBtn.onclick = () => {
+                document.getElementById('appendRecordId').value = currentRecordId;
+                document.getElementById('appendType').value = 'video';
+                document.getElementById('appendModalTitle').textContent = '補傳分析影片';
+                document.getElementById('appendFileLabel').textContent = '選擇影片檔案 (MP4/MOV)';
+                document.getElementById('appendFileInput').accept = 'video/*';
+                document.getElementById('appendScaleGroup').classList.remove('d-none');
+                appendModal.show();
+            };
+        }
+
+        const appendImuBtn = document.getElementById('appendImuBtn');
+        if (appendImuBtn) {
+            appendImuBtn.onclick = () => {
+                document.getElementById('appendRecordId').value = currentRecordId;
+                document.getElementById('appendType').value = 'imu';
+                document.getElementById('appendModalTitle').textContent = '補傳 IMU 數據';
+                document.getElementById('appendFileLabel').textContent = '選擇數據檔案 (CSV/XLSX)';
+                document.getElementById('appendFileInput').accept = '.csv, .xls, .xlsx';
+                document.getElementById('appendScaleGroup').classList.add('d-none');
+                appendModal.show();
+            };
+        }
+
+        if (appendForm) {
+            appendForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const type = document.getElementById('appendType').value;
+                const formData = new FormData();
+                formData.append('record_id', currentRecordId);
+                const fileInput = document.getElementById('appendFileInput');
+                if (type === 'video') {
+                    formData.append('video', fileInput.files[0]);
+                    formData.append('scale_reference', document.getElementById('appendScaleRef').value);
+                    formData.append('scale_pixels', document.getElementById('appendScalePx').value);
+                } else { formData.append('imu_file', fileInput.files[0]); }
+                const btn = document.getElementById('submitAppendBtn'); btn.disabled = true; btn.textContent = '上傳中...';
+                try {
+                    const res = await fetch('/api/append_data', { method: 'POST', body: formData });
+                    if (res.ok) { alert('補傳成功！'); window.location.reload(); }
+                    else { const d = await res.json(); alert('失敗: ' + d.error); }
+                } catch (err) { alert('發生錯誤'); } finally { btn.disabled = false; btn.textContent = '上傳並處理'; }
+            };
+        }
+    }
+
+    const editModalEl = document.getElementById('editModal');
+    if (editModalEl) {
+        const editModal = new bootstrap.Modal(editModalEl);
+        const editRecordBtn = document.getElementById('editRecordBtn');
+        if (editRecordBtn) {
+            editRecordBtn.onclick = () => {
+                document.getElementById('editSession').value = document.getElementById('detailSession').textContent.trim();
+                editModal.show();
+            };
+        }
+        const saveEditBtn = document.getElementById('saveEditBtn');
+        if (saveEditBtn) {
+            saveEditBtn.onclick = () => {
+                const session = document.getElementById('editSession').value;
+                fetch(`/api/record/${currentRecordId}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: session, note: document.getElementById('detailNote').value })
+                }).then(() => { window.location.reload(); });
+            };
+        }
+    }
+
+    const reanalyzeModalEl = document.getElementById('reanalyzeModal');
+    if (reanalyzeModalEl) {
+        const reanalyzeModal = new bootstrap.Modal(reanalyzeModalEl);
+        const reanalyzeBtn = document.getElementById('reanalyzeBtn');
+        if (reanalyzeBtn) {
+            reanalyzeBtn.onclick = () => {
+                reanalyzeModal.show();
+            };
+        }
+        const reanalyzeForm = document.getElementById('reanalyzeForm');
+        if (reanalyzeForm) {
+            reanalyzeForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('submitReanalyzeBtn'); btn.disabled = true; btn.textContent = '分析中...';
+                const modules = ['angle'];
+                if(document.getElementById('re_module_track').checked) modules.push('track');
+                if(document.getElementById('re_module_gait').checked) modules.push('gait');
+                try {
+                    const res = await fetch('/api/analyze', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            record_id: currentRecordId, job_id: `re_${Date.now()}`,
+                            modules: modules, person_records: [[0, 9999]], 
+                            scale_info: { reference: 1, pixels: 100 },
+                            athlete: currentPlayerId, session: document.getElementById('detailSession').textContent.trim(), note: document.getElementById('detailNote').value
+                        })
+                    });
+                    if(res.ok) { alert('分析完成！'); window.location.reload(); }
+                } finally { btn.disabled = false; btn.textContent = '確認執行'; }
+            };
+        }
+    }
+
+    if (videoSpeed && detailVideo) {
+        videoSpeed.onchange = (e) => { detailVideo.playbackRate = parseFloat(e.target.value); };
+    }
 });

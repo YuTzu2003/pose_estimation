@@ -6,7 +6,7 @@ import numpy as np
 import threading
 import cv2
 import json
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from modules.db import get_conn, release_conn
 from modules.pipeline.backbone_detect import get_person_records
 from modules.pipeline.pose_angle_track import run_pose_analysis

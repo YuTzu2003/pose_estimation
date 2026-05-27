@@ -59,11 +59,11 @@
         <div class="ms-auto d-flex gap-3">
           <div class="stat" style="min-width:160px">
             <div class="label">TOTAL ANALYSES</div>
-            <div class="value num" id="statTotal">0</div>
+            <div class="value num" id="statTotal">{{ total_sessions }}</div>
           </div>
           <div class="stat" style="min-width:160px">
             <div class="label">ATHLETES</div>
-            <div class="value num" id="statAthletes">0</div>
+            <div class="value num" id="statAthletes">{{ total_athletes }}</div>
           </div>
         </div>
       </div>
@@ -71,44 +71,93 @@
 
     <nav aria-label="breadcrumb" class="mb-4">
       <ol class="breadcrumb mono small" id="breadcrumbNav">
-        <li class="breadcrumb-item"><a href="#" id="pathHome" class="text-decoration-none text-muted">選手列表</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('records') }}" id="pathHome" class="text-decoration-none text-muted">選手列表</a></li>
+        {% if view_mode == 'sessions' or view_mode == 'detail' %}
+          <li class="breadcrumb-item">
+            <a href="{{ url_for('player_records_view', player_id=(player_id if view_mode == 'sessions' else record.player_id)) }}" class="text-decoration-none text-muted">
+              {{ player_name if view_mode == 'sessions' else record.player_name }}
+            </a>
+          </li>
+        {% endif %}
+        {% if view_mode == 'detail' %}
+          <li class="breadcrumb-item active">{{ record.session }}</li>
+        {% endif %}
       </ol>
     </nav>
 
     <!-- Player Selection Section -->
+    {% if view_mode == 'players' %}
     <section class="section" id="playerSection">
       <h3 class="section-title">選擇選手 / SELECT ATHLETE</h3>
       <div class="row g-3" id="playerList">
-        <!-- Filled by JS -->
+        {% for p in players %}
+        <div class="col-md-4 col-lg-3">
+            <a href="{{ url_for('player_records_view', player_id=p.id) }}" class="text-decoration-none text-reset">
+                <div class="tile player-card h-100 cursor-pointer">
+                    <div class="tile-num">{{ p.id }}</div>
+                    <h5 class="mb-1 fw-bold">{{ p.name }}</h5>
+                    <div class="x-small text-muted">{{ p.sport or '未指定運動' }}</div>
+                    <div class="mt-2 mono x-small">{{ p.gender or '-' }} | {{ p.height or '-' }}cm | {{ p.weight or '-' }}kg</div>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
       </div>
     </section>
+    {% endif %}
 
     <!-- Records List Section -->
-    <section class="section d-none" id="recordsSection">
+    {% if view_mode == 'sessions' %}
+    <section class="section" id="recordsSection">
       <div class="d-flex align-items-center mb-4">
-        <button class="btn btn-sm btn-outline-secondary me-3" id="backToPlayers">
+        <a href="{{ url_for('records') }}" class="btn btn-sm btn-outline-secondary me-3" id="backToPlayers">
           <i class="bi bi-arrow-left"></i> 返回選手列表
-        </button>
-        <h3 class="mb-0">紀錄列表 / RECORDS: <span id="currentPlayerName" class="text-primary"></span></h3>
+        </a>
+        <h3 class="mb-0">紀錄列表 / RECORDS: <span id="currentPlayerName" class="text-primary">{{ player_name }}</span></h3>
       </div>
-      <div id="recordsList"></div>
+      <div id="recordsList">
+        {% for s in sessions %}
+        <a href="{{ url_for('session_detail_view', player_id=player_id, session_id=s.id) }}" class="text-decoration-none text-reset">
+            <div class="tile mb-3 py-3 px-4 cursor-pointer">
+                <div class="d-flex align-items-center gap-4">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold fs-6">{{ s.name }}</div>
+                        <div class="small text-muted mt-1">{{ s.note or '無備註' }}</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="mono small text-muted text-end">{{ s.date }}</div>
+                        <span class="badge bg-secondary fw-normal" style="font-size: 0.7rem;">{{ s.records|length }} 個影片</span>
+                    </div>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+      </div>
     </section>
+    {% endif %}
 
     <!-- Record Detail Section -->
-    <section class="section d-none" id="detailSection">
+    {% if view_mode == 'detail' %}
+    <section class="section" id="detailSection">
       <div class="d-flex flex-wrap align-items-center mb-4 gap-3">
-        <button class="btn btn-sm btn-outline-secondary" id="backToRecords">
+        <a href="{{ url_for('player_records_view', player_id=record.player_id) }}" class="btn btn-sm btn-outline-secondary" id="backToRecords">
           <i class="bi bi-arrow-left"></i> 返回
-        </button>
-        <h3 class="mb-0 fs-5 fw-bold">紀錄詳情 <span class="text-muted fw-normal fs-6 ms-2" id="detailIdDisplay"></span></h3>
+        </a>
+        <h3 class="mb-0 fs-5 fw-bold">紀錄詳情 <span class="text-muted fw-normal fs-6 ms-2" id="detailIdDisplay">ID: {{ record.id }}</span></h3>
         <div class="ms-auto d-flex gap-2">
-          <button class="btn btn-sm btn-outline-success d-none" id="appendVideoBtn">上傳影片</button>
-          <button class="btn btn-sm btn-outline-success d-none" id="appendImuBtn">上傳IMU數據</button>
+          <button class="btn btn-sm btn-outline-success {{ 'd-none' if record.original_video or record.result_video else '' }}" id="appendVideoBtn">上傳影片</button>
+          <button class="btn btn-sm btn-outline-success {{ 'd-none' if record.imu_csv_path else '' }}" id="appendImuBtn">上傳IMU數據</button>
           <button class="btn btn-sm btn-outline-primary" id="editRecordBtn">編輯資訊</button>
           <button class="btn btn-sm btn-outline-warning" id="reanalyzeBtn">重新分析</button>
           <button class="btn btn-sm btn-outline-danger" id="deleteCurrentRecord">刪除</button>
         </div>
       </div>
+
+      <!-- Hidden Data for JS -->
+      <input type="hidden" id="hiddenRecordId" value="{{ record.id }}">
+      <input type="hidden" id="hiddenPlayerId" value="{{ record.player_id }}">
+      <input type="hidden" id="hiddenProjectFolder" value="{{ record.project_folder }}">
+      <input type="hidden" id="hiddenSessionId" value="{{ record.session_id }}">
 
       <div class="row g-4 align-items-stretch">
         <!-- Left Column: Video & Gait Correction -->
@@ -117,9 +166,25 @@
           <div class="tile h-100 d-flex flex-column">
             <div class="tile-num">[01] VIDEO</div>
             <div class="ratio ratio-16x9 bg-black rounded shadow-sm overflow-hidden mb-3 flex-grow-1">
-              <video id="detailVideo" controls preload="metadata" playsinline webkit-playsinline class="w-100 h-100"></video>
+              <video id="detailVideo" controls preload="metadata" playsinline webkit-playsinline class="w-100 h-100">
+                {% if record.result_video or record.original_video %}
+                <source src="/media/{{ record.result_video or record.original_video }}?t={{ range(1, 1000000)|random }}" type="video/mp4">
+                {% endif %}
+              </video>
             </div>
             
+            {% if record.session_videos|length > 1 %}
+            <div id="sessionVideoSelector" class="mt-3 p-2 bg-light rounded d-flex gap-2 flex-wrap mb-3">
+                <span class="small text-muted mono w-100 mb-1">SESSION VIDEOS:</span>
+                {% for sv in record.session_videos %}
+                <a href="{{ url_for('session_detail_view', player_id=record.player_id, session_id=record.session_id, r=sv.id) }}" 
+                   class="btn btn-xs {{ 'btn-dark' if sv.id == record.id else 'btn-outline-dark' }}">
+                   影片 {{ loop.index }}
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+
             <div class="d-flex align-items-center gap-2 p-2 bg-light rounded mt-auto">
               <label class="small text-muted mono ms-2 text-nowrap">SPEED:</label>
               <select id="videoSpeed" class="form-select form-select-sm border-0 bg-transparent w-auto" style="min-width: 85px; padding-right: 1.5rem;">
@@ -127,8 +192,13 @@
                 <option value="0.5">0.5x</option>
                 <option value="0.33">0.33x</option>
               </select>
-              <div id="videoDirectLink" class="ms-auto"></div>
-              <button class="btn btn-xs btn-dark ms-2 d-none" id="toggleGaitEditBtn" type="button" data-bs-toggle="collapse" data-bs-target="#gaitCorrectionBox">修正步頻數據</button>
+              <div id="videoDirectLink" class="ms-auto">
+                {% if record.result_video or record.original_video %}
+                <a href="/media/{{ record.result_video or record.original_video }}" class="btn btn-xs btn-outline-dark" download>下載影片</a>
+                {% endif %}
+              </div>
+              <button class="btn btn-xs btn-dark ms-2 {{ 'd-none' if not ('Stride & Speed' in record.modules or 'gait' in record.modules) else '' }}" 
+                      id="toggleGaitEditBtn" type="button" data-bs-toggle="collapse" data-bs-target="#gaitCorrectionBox">修正步頻數據</button>
             </div>
 
             <!-- Gait Correction (Collapsible, inside video tile) -->
@@ -175,18 +245,24 @@
             <div class="tile-num">[INFO]</div>
             <h5 class="fw-bold mb-3">分析資訊</h5>
             <div class="small mono text-muted">
-              <p class="mb-2"><span class="text-dark fw-bold">選手:</span> <span class="fw-bold" id="detailPlayerName"></span></p>
-              <p class="mb-2"><span class="text-dark fw-bold">場次:</span> <span id="detailSession"></span></p>
-              <p class="mb-2"><span class="text-dark fw-bold">日期:</span> <span class="mono" id="detailDate"></span></p>
-              <p class="mb-2"><span class="text-dark fw-bold">比例尺:</span> <span class="mono" id="detailScaleInfo">-</span></p>
-              <div class="mt-2" id="detailModules"></div>
+              <p class="mb-2"><span class="text-dark fw-bold">選手:</span> <span class="fw-bold" id="detailPlayerName">{{ record.player_name }}</span></p>
+              <p class="mb-2"><span class="text-dark fw-bold">場次:</span> <span id="detailSession">{{ record.session }}</span></p>
+              <p class="mb-2"><span class="text-dark fw-bold">日期:</span> <span class="mono" id="detailDate">{{ record.date }}</span></p>
+              <p class="mb-2"><span class="text-dark fw-bold">比例尺:</span> <span class="mono" id="detailScaleInfo">
+                {% if record.scale_reference %}{{ record.scale_reference }}m ({{ record.scale_pixels }}px){% else %}未設定{% endif %}
+              </span></p>
+              <div class="mt-2" id="detailModules">
+                {% for m in record.modules %}
+                <span class="badge bg-dark x-small fw-normal me-1">{{ m }}</span>
+                {% endfor %}
+              </div>
             </div>
             <div class="mt-3 pt-3 border-top flex-grow-1 d-flex flex-column">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <p class="x-small text-dark fw-bold mb-0">選手筆記 / ATHLETE NOTES</p>
                 <button class="btn btn-xs btn-dark" id="saveNoteBtn">儲存筆記</button>
               </div>
-              <textarea id="detailNote" class="form-control form-control-sm flex-grow-1" style="min-height: 200px; font-size: 0.88rem; background: #fafafa; border: 1px solid #eee; line-height: 1.6;" placeholder="在這裡輸入您的心得、觀察或是需要改進的動作重點..."></textarea>
+              <textarea id="detailNote" class="form-control form-control-sm flex-grow-1" style="min-height: 200px; font-size: 0.88rem; background: #fafafa; border: 1px solid #eee; line-height: 1.6;" placeholder="在這裡輸入您的心得、觀察或是需要改進的動作重點...">{{ record.note or '' }}</textarea>
               <div class="mt-2 x-small text-muted mono">
                 <i class="bi bi-info-circle me-1"></i>此內容僅供選手個人紀錄參考。
               </div>
@@ -199,7 +275,7 @@
       <div class="row g-4 mt-2">
         <div class="col-12">
           <!-- IMU Chart Box -->
-          <div class="tile d-none mb-4" id="imuPlotTile">
+          <div class="tile {{ 'd-none' if not record.imu_csv_path else '' }} mb-4" id="imuPlotTile">
             <div class="tile-num">[03] IMU CHART</div>
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
               <h6 class="fw-bold mb-0">IMU 運動數據分析</h6>
@@ -229,34 +305,37 @@
             </div>
             <div class="mt-2 d-flex justify-content-end gap-2">
                <button class="btn btn-xs btn-outline-danger" id="deleteImuDataBtn">刪除IMU數據</button>
-               <a id="downloadImu" href="#" class="btn btn-xs btn-outline-dark" download>下載IMU數據</a>
+               <a id="downloadImu" href="{{ url_for('media', filename=record.imu_csv_path) if record.imu_csv_path else '#' }}" class="btn btn-xs btn-outline-dark" download>下載IMU數據</a>
             </div>
           </div>
         </div>
-        <!-- Pose Chart Box -->
-        <div class="tile mb-4" id="posePlotTile">
-            <div class="tile-num">[02] POSE CHART</div>
+        <!-- Pose Chart Boxes -->
+        {% for sv in record.session_videos %}
+        <div class="tile {{ 'd-none' if not sv.pose_csv else '' }} mb-4 pose-plot-tile" data-record-id="{{ sv.id }}">
+            <div class="tile-num">[02] POSE CHART - 影片 {{ loop.index }}</div>
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-              <h6 class="fw-bold mb-0">骨幹變化軌跡</h6>
+              <h6 class="fw-bold mb-0">骨幹變化軌跡 (影片 {{ loop.index }})</h6>
               <div class="d-flex align-items-center gap-2">
-                <button class="btn btn-xs btn-outline-secondary" id="refreshPoseBtn" title="刷新圖表"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+                <button class="btn btn-xs btn-outline-secondary refresh-pose-btn" title="刷新圖表"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
                 <label class="small text-muted mono text-nowrap">SELECT PART:</label>
-                <select class="form-select form-select-sm w-auto" id="partSelect" style="font-size: 0.85rem; min-width: 180px;"></select>
+                <select class="form-select form-select-sm w-auto part-select" style="font-size: 0.85rem; min-width: 180px;"></select>
               </div>
             </div>
             <div class="chart-box d-flex align-items-center justify-content-center overflow-hidden" style="min-height: 350px; background: #fff;">
-              <img id="posePlot" src="" class="img-fluid d-none w-100">
-              <div id="plotSpinner" class="spinner-border text-muted"></div>
-              <div id="detailPoseNoData" class="text-center py-4 d-none">
+              <img src="" class="img-fluid d-none w-100 pose-plot-img">
+              <div class="plot-spinner spinner-border text-muted"></div>
+              <div class="text-center py-4 d-none pose-no-data">
                 <div class="small text-muted mono">無部位分析數據</div>
               </div>
             </div>
             <div class="mt-2 text-end">
-              <a id="downloadPose" href="#" class="btn btn-xs btn-outline-dark" download>下載骨幹數據</a>
+              <a href="/static/{{ sv.pose_csv if sv.pose_csv else '' }}" class="btn btn-xs btn-outline-dark download-pose-btn" download>下載骨幹數據 (影片 {{ loop.index }})</a>
             </div>
           </div>
+        {% endfor %}
       </div>
     </section>
+    {% endif %}
   </main>
 
   <!-- Append Data Modal -->

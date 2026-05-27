@@ -20,7 +20,7 @@
       </a>
       <div class="app-nav-links">
         {# "首頁" link removed per user request, using the brand icon instead #}
-        <a href="{{ url_for('player_page') }}" class="{% if request.endpoint == 'player_page' %}active{% endif %}">選手建檔</a>
+        <a href="{{ url_for('player') }}" class="{% if request.endpoint == 'player' %}active{% endif %}">選手建檔</a>
         <a href="{{ url_for('records') }}" class="{% if request.endpoint == 'records' %}active{% endif %}">選手紀錄</a>
         <a href="{{ url_for('compare') }}" class="{% if request.endpoint == 'compare' %}active{% endif %}">交叉比較</a>
       </div>
