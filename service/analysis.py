@@ -32,104 +32,151 @@ def update_progress(job_id, percent, status):
         with progress_lock:
             progress_data[job_id] = {"progress": percent, "status": status}
 
+def get_record_project_info(record_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Project_Folder FROM Record WHERE Record_id = ?", (record_id,))
+    row = cursor.fetchone()
+    if row:
+        folder = row[0]
+        abs_path = os.path.join(BASE_DIR, 'static', folder)
+        return abs_path, folder
+
+    release_conn(conn)
+    return os.path.join(JOBS_DIR, record_id), f"jobs/{record_id}"
+
 @analysis_bp.route('/upload', methods=['POST'])
 def upload():
-    video_file = request.files.get('video')
+    video_files = request.files.getlist('video')
     imu_file = request.files.get('imu_file')
-    if not video_file and not imu_file:
+    
+    if not video_files and not imu_file:
         return jsonify({'error': '請至少選擇一個影片檔案或 IMU 數據檔案'}), 400
+        
     athlete = request.form.get('athlete', '').strip()
     session_name = request.form.get('session', '').strip()
     note = request.form.get('note', '').strip()
     scale_reference = request.form.get('scale_reference', '').strip()
     scale_pixels = request.form.get('scale_pixels', '').strip()
+    job_id = request.form.get('job_id')
 
     if not athlete or not session_name:
         return jsonify({'error': '請填寫選手與場次標註'}), 400
-    record_id = "Rec_" + uuid.uuid4().hex[:8]
-    project_dir = os.path.join(JOBS_DIR, record_id)
-    os.makedirs(project_dir, exist_ok=True)
-    job_id = request.form.get('job_id')
-    orig_video_db_path = None
+
+    session_id = "Ses_" + uuid.uuid4().hex[:8]
+    session_results = []
+    
+    # Process IMU if exists
     imu_csv_db_path = None
-    person_records = []
-    fps = 30
-    if video_file and video_file.filename != '':
-        original_ext = os.path.splitext(video_file.filename)[1] or ".mp4"
-        filename = record_id + original_ext
-        abs_video_path = os.path.join(project_dir, filename)
-        video_file.save(abs_video_path)
-        orig_video_db_path = f"jobs/{record_id}/{filename}"
-        try:        
-            cap_temp = cv2.VideoCapture(abs_video_path)
-            fps = cap_temp.get(cv2.CAP_PROP_FPS)
-            cap_temp.release()
-            update_progress(job_id, 5, "正在偵測有無出現人...")
-            person_records = get_person_records(abs_video_path)
-        except Exception as e:
-            print(f"Video detection error: {e}")
-            update_progress(job_id, 60, f"偵測失敗: {str(e)}")
-            
+    session_dir = os.path.join(JOBS_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
     if imu_file and imu_file.filename != '':
         imu_ext = os.path.splitext(imu_file.filename)[1] or ".csv"
-        temp_imu_filename = f"{record_id}_temp_imu{imu_ext}"
-        abs_temp_imu_path = os.path.join(project_dir, temp_imu_filename)
+        temp_imu_filename = f"{session_id}_temp_imu{imu_ext}"
+        abs_temp_imu_path = os.path.join(session_dir, temp_imu_filename)
         imu_file.save(abs_temp_imu_path)
         update_progress(job_id, 10, "正在驗證IMU數據...")
-        std_csv_file, err = process_imu_data(abs_temp_imu_path, project_dir, record_id)
+        std_csv_file, err = process_imu_data(abs_temp_imu_path, session_dir, session_id)
         if os.path.exists(abs_temp_imu_path):
             os.remove(abs_temp_imu_path)
         if std_csv_file:
-            imu_csv_db_path = f"jobs/{record_id}/{std_csv_file}"
+            imu_csv_db_path = f"jobs/{session_id}/{std_csv_file}"
         else:
             update_progress(job_id, 60, f"IMU錯誤: {err}")
             return jsonify({'error': err}), 400
 
-    # 建立初步紀錄與專案資料夾
-    frame_start = 0
-    frame_end = 0
-    if person_records and len(person_records) > 0:
-        frame_start = int(person_records[0][0])
-        frame_end = int(person_records[0][1])
-    
-    project_folder = f"jobs/{record_id}"
+    # Save Session to DB
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("""INSERT INTO Record (Record_id, Player_id, Session_name, Note, Project_Folder, Frame_Start, Frame_End, Scale_Reference, Scale_Pixels, Created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())""", 
-                       (record_id, athlete, session_name, note, project_folder, frame_start, frame_end, scale_reference or None, scale_pixels or None))
+        session_folder = f"jobs/{session_id}"
+        cursor.execute("""INSERT INTO [Session] (Session_id, Session_name, Player_id, Note, Project_Folder, Created_at) VALUES (?, ?, ?, ?, ?, GETDATE())""", (session_id, session_name, athlete, note, session_folder))
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Database error during initial record creation: {e}")
+        print(f"Database error during session creation: {e}")
     finally:
         release_conn(conn)
 
-    analysis_info = {
-        "record_id": record_id,
-        "athlete": athlete,
-        "session": session_name,
-        "note": note,
-        "scale_info": {"reference": scale_reference, "pixels": scale_pixels},
-        "modules": ["detection"], 
-        "person_records": person_records,
-        "status": "detected",
-        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "files": {
-            "original_video": filename if 'filename' in locals() else None,
-            "imu_csv": os.path.basename(imu_csv_db_path) if imu_csv_db_path else None
+    for idx, video_file in enumerate(video_files):
+        if not video_file or video_file.filename == '':
+            continue
+        record_id = "Rec_" + uuid.uuid4().hex[:8]
+        project_dir = os.path.join(session_dir, record_id)
+        os.makedirs(project_dir, exist_ok=True)
+        
+        original_ext = os.path.splitext(video_file.filename)[1] or ".mp4"
+        filename = record_id + original_ext
+        abs_video_path = os.path.join(project_dir, filename)
+        video_file.save(abs_video_path)
+        orig_video_db_path = f"jobs/{session_id}/{record_id}/{filename}"
+        person_records = []
+        fps = 30
+        try:        
+            cap_temp = cv2.VideoCapture(abs_video_path)
+            fps = cap_temp.get(cv2.CAP_PROP_FPS)
+            cap_temp.release()
+            update_progress(job_id, 10 + (idx * 10), f"正在偵測影片 {idx+1} 有無出現人...")
+            person_records = get_person_records(abs_video_path)
+        except Exception as e:
+            print(f"Video detection error for {filename}: {e}")
+            
+        frame_start = 0
+        frame_end = 0
+        if person_records and len(person_records) > 0:
+            frame_start = int(person_records[0][0])
+            frame_end = int(person_records[0][1])
+        
+        project_folder = f"jobs/{session_id}/{record_id}"
+        
+        # Save Record to DB
+        conn = get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""INSERT INTO Record (Record_id, Session_id, Project_Folder, Frame_Start, Frame_End, Scale_Reference, Scale_Pixels) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""", 
+                           (record_id, session_id, project_folder, frame_start, frame_end, scale_reference or 1.0, scale_pixels or 100.0))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"Database error during record creation: {e}")
+        finally:
+            release_conn(conn)
+
+        session_results.append({
+            'record_id': record_id,
+            'filename': filename,
+            'person_records': person_records,
+            'fps': fps,
+            'orig_video_path': orig_video_db_path
+        })
+        
+        # Save analysis_info.json per record
+        analysis_info = {
+            "record_id": record_id,
+            "session_id": session_id,
+            "athlete": athlete,
+            "session": session_name,
+            "note": note,
+            "scale_info": {"reference": scale_reference, "pixels": scale_pixels},
+            "modules": ["detection"], 
+            "person_records": person_records,
+            "status": "detected",
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "files": {
+                "original_video": filename,
+                "imu_csv": os.path.basename(imu_csv_db_path) if imu_csv_db_path and idx == 0 else None
+            }
         }
-    }
-    with open(os.path.join(project_dir, 'analysis_info.json'), 'w', encoding='utf-8') as f:
-        json.dump(analysis_info, f, ensure_ascii=False, indent=4)
+        with open(os.path.join(project_dir, 'analysis_info.json'), 'w', encoding='utf-8') as f:
+            json.dump(analysis_info, f, ensure_ascii=False, indent=4)
 
     update_progress(job_id, 100, "上傳與偵測完成！")
     return jsonify({
-        'record_id': record_id, 
+        'session_id': session_id,
         'message': '上傳與偵測完成！',
-        'person_records': person_records,
-        'fps': fps,
-        'orig_video_path': orig_video_db_path,
+        'results': session_results,
         'imu_csv_path': imu_csv_db_path
     })
 
@@ -144,9 +191,12 @@ def analyze():
     athlete = data.get('athlete')
     session_name = data.get('session')
     note = data.get('note')
+    
     if not record_id:
         return jsonify({'error': '缺少紀錄 ID'}), 400
-    project_dir = os.path.join(JOBS_DIR, record_id)
+        
+    project_dir, project_folder = get_record_project_info(record_id)
+    
     orig_video_filename = None
     video_extensions = ['.mp4', '.avi', '.mov', '.webm', '.mkv']
     if os.path.exists(project_dir):
@@ -156,16 +206,18 @@ def analyze():
                 if ext in video_extensions and not any(x in f for x in ['_result', '_gait']):
                     orig_video_filename = f
                     break
+    
+    if not orig_video_filename and os.path.exists(project_dir):
+        for f in os.listdir(project_dir):
+            if f.startswith(record_id) and not any(x in f for x in ['_result', '_gait', '_peaks', '_imu', '.csv', '.json']):
+                orig_video_filename = f
+                break
+                
     if not orig_video_filename:
-        if os.path.exists(project_dir):
-            for f in os.listdir(project_dir):
-                if f.startswith(record_id) and not any(x in f for x in ['_result', '_gait', '_peaks', '_imu', '.csv', '.json']):
-                    orig_video_filename = f
-                    break
-    if not orig_video_filename:
-        return jsonify({'error': '找不到原始影片檔案'}), 404
+        return jsonify({'error': f'找不到原始影片檔案 (ID: {record_id})'}), 404
+        
     abs_video_path = os.path.join(project_dir, orig_video_filename)
-    orig_video_db_path = f"jobs/{record_id}/{orig_video_filename}"
+    orig_video_db_path = f"{project_folder}/{orig_video_filename}"
     result_video_path = None
     pose_csv_path = None
     peak_data_list = []
@@ -176,14 +228,11 @@ def analyze():
     can_skip_pose = os.path.exists(existing_pose_csv) and os.path.exists(existing_pose_video)
     
     needs_tracking = 'track' in selected_modules
-    
-    # 如果有要求重新畫軌跡 (track)，或者目前沒有現成的骨架資料，就必須重跑 pose_analysis
     force_rerun_pose = needs_tracking or not can_skip_pose
 
     try:
         if person_records:
             enable_track = 'track' in selected_modules
-            
             res_video = f"{record_id}_pose.mp4"
             res_csv = f"{record_id}_pose.csv"
             
@@ -197,10 +246,10 @@ def analyze():
                     progress_callback=pose_progress
                 )
             else:
-                update_progress(job_id, 50, "偵測到現存骨架資料且無需重新繪製軌跡，跳過推論...")
+                update_progress(job_id, 50, "偵測到現存骨架資料，跳過推論...")
 
-            result_video_path = f"jobs/{record_id}/{res_video}"
-            pose_csv_path = f"jobs/{record_id}/{res_csv}"
+            result_video_path = f"{project_folder}/{res_video}"
+            pose_csv_path = f"{project_folder}/{res_csv}"
             pose_csv_abs = os.path.join(project_dir, res_csv)
             peaks_csv_name = f"{record_id}_peaks.csv"
             peaks_csv_abs = os.path.join(project_dir, peaks_csv_name)
@@ -242,7 +291,7 @@ def analyze():
                         progress_callback=step_progress
                     )
                     if final_gait_video:
-                        result_video_path = f"jobs/{record_id}/{final_gait_video}"
+                        result_video_path = f"{project_folder}/{final_gait_video}"
         else:
             update_progress(job_id, 60, "未偵測到人，跳過影片分析")
     except Exception as e:
@@ -257,25 +306,31 @@ def analyze():
         frame_start = int(person_records[0][0])
         frame_end = int(person_records[0][1])
     
+    # Update DB
     conn = get_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute("""UPDATE Record SET Frame_Start = ?, Frame_End = ?, Session_name = ?, Note = ?, Scale_Reference = ?, Scale_Pixels = ? WHERE Record_id = ?""", 
-                       (frame_start, frame_end, session_name, note, scale_info.get('reference'), scale_info.get('pixels'), record_id))
+        # 1. Update Record Table (Frame and Scale)
+        cursor.execute("""UPDATE Record SET Frame_Start = ?, Frame_End = ?, Scale_Reference = ?, Scale_Pixels = ? WHERE Record_id = ?""", 
+                       (frame_start, frame_end, scale_info.get('reference'), scale_info.get('pixels'), record_id))
+        
+        # 2. Get Session_id for this record to update Session table
+        cursor.execute("SELECT Session_id FROM Record WHERE Record_id = ?", (record_id,))
+        s_row = cursor.fetchone()
+        if s_row:
+            session_id = s_row[0]
+            # 3. Update Session Table (Name and Note)
+            cursor.execute("""UPDATE [Session] SET Session_name = ?, Note = ? WHERE Session_id = ?""", 
+                           (session_name, note, session_id))
+        
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"Database error during record update: {e}")
+        print(f"Database error during multi-table update: {e}")
     finally:
         release_conn(conn)
 
-    # 儲存分析流程資訊到 JSON
-    
-    module_map = {
-        "angle": "Joint Angle",
-        "track": "Keypoint Track",
-        "gait": "Stride & Speed"
-    }
+    module_map = {"angle": "Joint Angle", "track": "Keypoint Track", "gait": "Stride & Speed"}
     friendly_modules = [module_map.get(m, m) for m in selected_modules]
     
     analysis_info = {
@@ -307,7 +362,7 @@ def analyze():
         'person_records': person_records,
         'peak_data': peak_data_list,
         'pose_csv': pose_csv_path,
-        'peaks_csv': f"jobs/{record_id}/{record_id}_peaks.csv" if peak_data_list else None
+        'peaks_csv': f"{project_folder}/{record_id}_peaks.csv" if peak_data_list else None
     })
 
 @analysis_bp.route('/regenerate_gait', methods=['POST'])
@@ -319,7 +374,8 @@ def regenerate_gait():
     person_records = data.get('person_records')
     if not record_id or not peak_data:
         return jsonify({'error': 'Missing parameters'}), 400
-    project_dir = os.path.join(JOBS_DIR, record_id)
+        
+    project_dir, project_folder = get_record_project_info(record_id)
     peaks_csv_abs = os.path.join(project_dir, f"{record_id}_peaks.csv")
     try:
         df = pd.DataFrame(peak_data)
@@ -332,11 +388,13 @@ def regenerate_gait():
                     break
         if not os.path.exists(input_video_for_gait):
             return jsonify({'error': f'找不到原始骨幹分析影片 ({record_id}_pose.mp4)'}), 404
+            
         gait_video_name = f"{record_id}_result.mp4"
         gait_video_abs = os.path.join(project_dir, gait_video_name)
         if os.path.exists(gait_video_abs):
             try: os.remove(gait_video_abs)
             except: pass
+            
         ratio = float(scale_info['reference']) / float(scale_info['pixels'])
         final_gait_video = run_step(
             input_video_for_gait, peaks_csv_abs, gait_video_abs, 
@@ -345,7 +403,7 @@ def regenerate_gait():
         if final_gait_video:
             return jsonify({
                 'success': True,
-                'video_url': f"/static/jobs/{record_id}/{final_gait_video}?t={int(time.time())}"
+                'video_url': f"/static/{project_folder}/{final_gait_video}?t={int(time.time())}"
             })
         else:
             return jsonify({'error': '影片生成程序執行失敗'}), 500
@@ -360,7 +418,8 @@ def get_frame():
     frame_no = int(request.args.get('frame_no', 0))
     if not record_id:
         return jsonify({'error': 'Missing record_id'}), 400
-    project_dir = os.path.join(JOBS_DIR, record_id)
+        
+    project_dir, project_folder = get_record_project_info(record_id)
     orig_video_filename = None
     if os.path.exists(project_dir):
         for f in os.listdir(project_dir):
@@ -371,10 +430,9 @@ def get_frame():
                     break
     if not orig_video_filename:
         return jsonify({'error': 'Video not found'}), 404
+        
     abs_video_path = os.path.join(project_dir, orig_video_filename)
     try:
-        import cv2
-        import base64
         cap = cv2.VideoCapture(abs_video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_no >= total_frames:
@@ -385,6 +443,7 @@ def get_frame():
         if not ret:
             return jsonify({'error': 'Failed to read frame'}), 500
         _, buffer = cv2.imencode('.jpg', frame)
+        import base64
         jpg_as_text = base64.b64encode(buffer).decode('utf-8')
         return jsonify({
             'success': True,

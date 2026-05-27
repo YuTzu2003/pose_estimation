@@ -71,7 +71,7 @@
             <div class="col-md-6">
               <label class="form-label small text-muted mono">VIDEO FILE</label>
               <div class="file-drop p-3 border rounded bg-light text-center cursor-pointer hover-shadow" id="fileDrop" onclick="document.getElementById('fileInput').click()" style="cursor: pointer;">
-                <input type="file" id="fileInput" name="video" accept="video/*" hidden />
+                <input type="file" id="fileInput" name="video" accept="video/*" multiple hidden />
                 <i class="bi bi-camera-reels fs-4 text-muted mb-1 d-block"></i>
                 <span class="small d-block fw-bold text-dark">上傳影片分析</span>
                 <span class="x-small text-muted mono mt-1 d-block text-truncate px-2" id="fileName">未選取檔案</span>
@@ -210,6 +210,11 @@
 
       <div class="row">
         <div class="col-12">
+          <!-- Record Selector for Multi-Video Sessions -->
+          <div id="recordSelector" class="d-flex gap-2 mb-3 overflow-auto pb-2 d-none">
+            <!-- Filled by JS -->
+          </div>
+
           <div id="videoContainer">
             <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small" style="min-height: 400px; background: #1a1a1a;">
               ANALYZED VIDEO PREVIEW

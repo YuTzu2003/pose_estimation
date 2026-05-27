@@ -2,16 +2,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Global State ---
     let allPlayers = [];
     let currentPlayer = null;
-    let currentRecords = [];
+    let currentRecords = []; // Flattened records
+    let currentSessions = {}; // Grouped by session_id or session_name + date
+
     function deleteRecord(recordId) {
         fetch(`/api/record/${recordId}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-            if (data.message) { alert('紀錄已刪除'); backToRecords.onclick(); showRecords(currentPlayer.id, currentPlayer.name); }
+            if (data.message) { 
+                alert('紀錄已刪除'); 
+                if (detailSection.classList.contains('d-none')) {
+                    showRecords(currentPlayer.id, currentPlayer.name);
+                } else {
+                    backToRecords.onclick();
+                    showRecords(currentPlayer.id, currentPlayer.name);
+                }
+            }
             else alert(data.error);
         });
     }
 
     let currentRecordId = null;
     let currentRecordData = null;
+    let currentSessionRecords = [];
     
     // --- Elements ---
     const playerSection = document.getElementById('playerSection');
@@ -38,7 +49,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function fetchStats() {
-        fetch('/api/records').then(res => res.json()).then(data => { statTotal.textContent = data.length; });
+        fetch('/api/records').then(res => res.json()).then(data => { 
+            // In session view, we show total sessions
+            const tempSessions = {};
+            data.forEach(r => {
+                const key = r.session_id || `${r.session}_${r.date.split(' ')[0]}`;
+                tempSessions[key] = true;
+            });
+            statTotal.textContent = Object.keys(tempSessions).length; 
+        });
     }
 
     function renderPlayers(players) {
@@ -64,30 +83,63 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('currentPlayerName').textContent = playerName;
         playerSection.classList.add('d-none'); recordsSection.classList.remove('d-none'); detailSection.classList.add('d-none');
         fetch(`/api/records?player_id=${playerId}`).then(res => res.json()).then(data => {
-            currentRecords = data; renderRecords(data);
+            currentRecords = data;
+            groupRecordsIntoSessions(data);
+            renderSessions();
         });
     }
 
-    function renderRecords(records) {
-        recordsList.innerHTML = '';
-        document.getElementById('statTotal').textContent = records.length;
+    function groupRecordsIntoSessions(records) {
+        currentSessions = {};
         records.forEach(r => {
+            // Group by session_id if available, fallback to session name + date
+            const key = r.session_id || `${r.session}_${r.date.split(' ')[0]}`;
+            if (!currentSessions[key]) {
+                currentSessions[key] = {
+                    id: key,
+                    name: r.session,
+                    date: r.date,
+                    note: r.note,
+                    records: []
+                };
+            }
+            currentSessions[key].records.push(r);
+        });
+    }
+
+    function renderSessions() {
+        recordsList.innerHTML = '';
+        const sessionKeys = Object.keys(currentSessions).sort((a, b) => {
+            return new Date(currentSessions[b].date) - new Date(currentSessions[a].date);
+        });
+        
+        document.getElementById('statTotal').textContent = sessionKeys.length;
+        
+        sessionKeys.forEach(key => {
+            const s = currentSessions[key];
             const tile = document.createElement('div');
-            tile.className = 'tile d-flex align-items-center gap-4 mb-3 py-3 px-4';
+            tile.className = 'tile mb-3 py-3 px-4 cursor-pointer';
             tile.innerHTML = `
-                <div class="flex-grow-1">
-                    <div class="fw-bold fs-6">${r.session}</div>
-                    <div class="small text-muted mt-1">${r.note || '無備註'}</div>
-                </div>
-                <div class="mono small text-muted text-end">${r.date}</div>
-                <div class="ms-3 d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-dark view-detail" data-id="${r.id}">詳情</button>
-                    <button class="btn btn-sm btn-outline-danger delete-record" data-id="${r.id}">刪除</button>
+                <div class="d-flex align-items-center gap-4">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold fs-6">${s.name}</div>
+                        <div class="small text-muted mt-1">${s.note || '無備註'}</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="mono small text-muted text-end">${s.date}</div>
+                        <span class="badge bg-secondary fw-normal" style="font-size: 0.7rem;">${s.records.length} video</span>
+                    </div>
                 </div>`;
-            tile.querySelector('.view-detail').onclick = () => showDetail(r.id);
-            tile.querySelector('.delete-record').onclick = () => { if(confirm('確定刪除？')) deleteRecord(r.id); };
+            tile.onclick = () => showSessionDetail(s.id);
             recordsList.appendChild(tile);
         });
+    }
+
+    function showSessionDetail(sessionId) {
+        const session = currentSessions[sessionId];
+        currentSessionRecords = session.records;
+        // Default to showing the first record
+        showDetail(session.records[0].id);
     }
 
     function showDetail(recordId) {
@@ -100,6 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('detailSession').textContent = record.session;
             document.getElementById('detailDate').textContent = record.date;
             
+            // Add session video selector
+            updateVideoSelector();
+
             // Scale Info instead of frames
             const scaleText = record.scale_reference ? `${record.scale_reference}m (${record.scale_pixels}px)` : '未設定';
             document.getElementById('detailScaleInfo').textContent = scaleText;
@@ -156,6 +211,31 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function updateVideoSelector() {
+        let selector = document.getElementById('sessionVideoSelector');
+        if (!selector) {
+            selector = document.createElement('div');
+            selector.id = 'sessionVideoSelector';
+            selector.className = 'mt-3 p-2 bg-light rounded d-flex gap-2 flex-wrap';
+            const videoTile = document.querySelector('#detailSection .col-lg-9 .tile');
+            videoTile.insertBefore(selector, videoTile.querySelector('.ratio').nextSibling);
+        }
+        
+        if (currentSessionRecords.length > 1) {
+            selector.classList.remove('d-none');
+            selector.innerHTML = `<span class="small text-muted mono w-100 mb-1">SESSION VIDEOS:</span>`;
+            currentSessionRecords.forEach((rec, idx) => {
+                const btn = document.createElement('button');
+                btn.className = `btn btn-xs ${rec.id === currentRecordId ? 'btn-dark' : 'btn-outline-dark'}`;
+                btn.textContent = `Video ${idx + 1}`;
+                btn.onclick = () => showDetail(rec.id);
+                selector.appendChild(btn);
+            });
+        } else {
+            selector.classList.add('d-none');
+        }
+    }
+
     // --- Note Saving ---
     document.getElementById('saveNoteBtn').onclick = () => {
         const note = document.getElementById('detailNote').value;
@@ -168,6 +248,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.message) { 
                 alert('筆記已儲存'); 
                 currentRecordData.note = note;
+                // Update in our grouped data as well
+                const sKey = currentRecordData.session_id || `${currentRecordData.session}_${currentRecordData.date.split(' ')[0]}`;
+                if (currentSessions[sKey]) currentSessions[sKey].note = note;
             } else alert(data.error);
         }).finally(() => {
             btn.disabled = false; btn.textContent = '儲存筆記';
@@ -208,6 +291,12 @@ document.addEventListener('DOMContentLoaded', () => {
             fetch(`/api/record/${currentRecordId}/imu`, { method: 'DELETE' }).then(() => showDetail(currentRecordId));
         }
     };
+    
+    document.getElementById('deleteCurrentRecord').onclick = () => {
+        if(confirm('確定刪除此影片紀錄？')) {
+            deleteRecord(currentRecordId);
+        }
+    };
 
     // --- Gait Correction ---
     function loadPeakData(recordId) {
@@ -215,6 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const peaksPath = `/static/${projectFolder}/${currentRecordId}_peaks.csv?t=${Date.now()}`;
         fetch(peaksPath).then(res => res.text()).then(csvText => {
             const lines = csvText.split('\n');
+            if (lines.length < 2) return renderPeakTable([]);
             const headers = lines[0].split(',');
             const data = [];
             for(let i=1; i<lines.length; i++) {
@@ -224,6 +314,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 data.push(obj);
             }
             renderPeakTable(data);
+        }).catch(err => {
+            console.error('Error loading peaks:', err);
+            renderPeakTable([]);
         });
     }
 
@@ -245,6 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderPeakTable(data) {
         const body = document.getElementById('csvBody'); body.innerHTML = '';
+        if (data.length === 0) {
+            body.innerHTML = '<tr><td colspan="9" class="text-center py-2 text-muted">無步頻數據</td></tr>';
+            return;
+        }
         const fmt = (v) => (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(2) : '';
         data.forEach((row, i) => {
             const tr = document.createElement('tr');
@@ -265,13 +362,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.addNewPeak = () => {
+        const body = document.getElementById('csvBody');
+        if (body.innerHTML.includes('無步頻數據')) body.innerHTML = '';
         const tr = document.createElement('tr'); tr.className = 'peak-row';
         tr.innerHTML = `<td class="text-center text-muted">*</td>
             <td contenteditable="true" class="peak-frame-r text-center"></td><td contenteditable="true" class="peak-x-r text-center"></td><td contenteditable="true" class="peak-y-r text-center"></td>
             <td class="text-center"><button class="btn btn-link btn-sm text-danger p-0" onclick="window.clearFoot(this, 'r')"><i class="bi bi-trash"></i></button></td>
             <td contenteditable="true" class="peak-frame-l text-center"></td><td contenteditable="true" class="peak-x-l text-center"></td><td contenteditable="true" class="peak-y-l text-center"></td>
             <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
-        document.getElementById('csvBody').appendChild(tr);
+        body.appendChild(tr);
     };
 
     document.getElementById('regenBtn').onclick = async () => {
@@ -353,6 +452,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function recordPoint(side) {
         if (!lastPoint) { alert('請先在畫面上點選位置'); return; }
+        const body = document.getElementById('csvBody');
+        if (body.innerHTML.includes('無步頻數據')) body.innerHTML = '';
         const tr = document.createElement('tr'); tr.className = 'peak-row';
         const valX = parseFloat(lastPoint.x).toFixed(2);
         const valY = parseFloat(lastPoint.y).toFixed(2);
@@ -373,7 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td contenteditable="true" class="peak-y-l text-center">${valY}</td>
                 <td class="text-center"><button class="btn btn-link btn-sm text-primary p-0" onclick="window.clearFoot(this, 'l')"><i class="bi bi-trash"></i></button></td>`;
         }
-        document.getElementById('csvBody').appendChild(tr);
+        body.appendChild(tr);
         alert(`已記錄${side === 'R' ? '右' : '左'}腳點位於幀 ${currentPickerIdx}`);
     }
 
@@ -467,9 +568,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('pathHome').onclick = (e) => { e.preventDefault(); backToPlayers.onclick(); };
         if (level === 'records' || level === 'detail') {
             const li = document.createElement('li'); li.className = 'breadcrumb-item';
-            li.innerHTML = `<a href="#">${currentPlayer.name}</a>`;
-            li.onclick = (e) => { e.preventDefault(); backToRecords.onclick(); };
+            li.innerHTML = `<a href="#" id="pathRecords">${currentPlayer.name}</a>`;
             breadcrumbNav.appendChild(li);
+            document.getElementById('pathRecords').onclick = (e) => { e.preventDefault(); backToRecords.onclick(); };
         }
         if (level === 'detail' && record) {
             const li = document.createElement('li'); li.className = 'breadcrumb-item active'; li.textContent = record.session;

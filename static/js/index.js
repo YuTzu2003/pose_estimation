@@ -1,11 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- 1. State & Global Variables ---
-  let currentAnalysis = {
-    record_id: null,
-    peak_data: [],
-    scale_info: null,
-    person_records: null,
-    fps: 30
+  let currentSession = {
+    session_id: null,
+    records: [], // List of { record_id, person_records, fps, filename, orig_video_path, analysis_result }
+    activeRecordId: null
   };
 
   const autoMeasureBtn = document.getElementById('autoMeasureBtn');
@@ -17,7 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggleAutoMeasureBtn = () => {
     if (autoMeasureBtn && scalePreset) {
       const hasLocalFile = fileInput && fileInput.files.length > 0;
-      if (scalePreset.value === 'custom' && (currentAnalysis.record_id || hasLocalFile)) {
+      const hasRecord = currentSession.records.length > 0;
+      if (scalePreset.value === 'custom' && (hasRecord || hasLocalFile)) {
         autoMeasureBtn.style.display = 'inline-block';
       } else {
         autoMeasureBtn.style.display = 'none';
@@ -40,7 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (fileInput && fileNameDisplay) {
     fileInput.addEventListener('change', () => {
       if (fileInput.files.length > 0) {
-        fileNameDisplay.textContent = fileInput.files[0].name;
+        if (fileInput.files.length === 1) {
+          fileNameDisplay.textContent = fileInput.files[0].name;
+        } else {
+          fileNameDisplay.textContent = `已選取 ${fileInput.files.length} 個影片`;
+        }
         fileNameDisplay.style.color = 'var(--fg)';
       } else {
         fileNameDisplay.textContent = '未選取檔案';
@@ -122,11 +125,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let measureState = { points: [], bgImage: new Image(), currentFrame: 0, totalFrames: 0, imgScale: 1, isLocal: false };
 
     autoMeasureBtn.addEventListener('click', () => {
-      if (!currentAnalysis.record_id && (!fileInput.files || fileInput.files.length === 0)) {
+      if (currentSession.records.length === 0 && (!fileInput.files || fileInput.files.length === 0)) {
         alert('請先選擇影片檔案。'); return;
       }
       measureModal.show();
-      if (currentAnalysis.record_id) { measureState.isLocal = false; loadMeasureFrame(0); }
+      if (currentSession.records.length > 0) { 
+        measureState.isLocal = false; 
+        loadMeasureFrame(currentSession.activeRecordId || currentSession.records[0].record_id, 0); 
+      }
       else { measureState.isLocal = true; setupLocalVideo(); }
     });
 
@@ -159,11 +165,11 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
-    async function loadMeasureFrame(frameNo) {
+    async function loadMeasureFrame(recordId, frameNo) {
       if (measureState.isLocal) return loadLocalFrame(frameNo);
       measureLoading.classList.remove('d-none');
       try {
-        const res = await fetch(`/api/get_frame?record_id=${currentAnalysis.record_id}&frame_no=${frameNo}`);
+        const res = await fetch(`/api/get_frame?record_id=${recordId}&frame_no=${frameNo}`);
         const data = await res.json();
         if (data.success) {
           measureState.bgImage.onload = () => {
@@ -208,9 +214,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     measureCanvas.oncontextmenu = (e) => { e.preventDefault(); measureState.points.pop(); renderMeasureCanvas(); };
     measureSlider.oninput = () => { measureFrameText.textContent = `Frame: ${measureSlider.value} / ${measureState.totalFrames - 1}`; };
-    measureSlider.onchange = () => { loadMeasureFrame(measureSlider.value); };
-    document.getElementById('measurePrevFrame').onclick = () => { if (measureState.currentFrame > 0) loadMeasureFrame(measureState.currentFrame - 1); };
-    document.getElementById('measureNextFrame').onclick = () => { if (measureState.currentFrame < measureState.totalFrames - 1) loadMeasureFrame(measureState.currentFrame + 1); };
+    measureSlider.onchange = () => { 
+        const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+        loadMeasureFrame(rid, measureSlider.value); 
+    };
+    document.getElementById('measurePrevFrame').onclick = () => { 
+        if (measureState.currentFrame > 0) {
+            const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+            loadMeasureFrame(rid, measureState.currentFrame - 1); 
+        }
+    };
+    document.getElementById('measureNextFrame').onclick = () => { 
+        if (measureState.currentFrame < measureState.totalFrames - 1) {
+            const rid = currentSession.activeRecordId || currentSession.records[0].record_id;
+            loadMeasureFrame(rid, measureState.currentFrame + 1); 
+        }
+    };
     document.getElementById('measureClearBtn').onclick = () => { measureState.points = []; renderMeasureCanvas(); };
     document.getElementById('measureConfirmBtn').onclick = () => {
       if (measureState.points.length === 2) {
@@ -237,11 +256,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let pickerState = { point: null, bgImage: new Image(), currentFrame: 0, totalFrames: 0, imgScale: 1, isLocal: false };
 
     openPickerBtn.addEventListener('click', () => {
-      if (!currentAnalysis.record_id && (!fileInput.files || fileInput.files.length === 0)) {
+      if (currentSession.records.length === 0 && (!fileInput.files || fileInput.files.length === 0)) {
         alert('請先選擇影片檔案。'); return;
       }
       pickerModal.show();
-      if (currentAnalysis.record_id) { pickerState.isLocal = false; loadPickerFrame(0); }
+      if (currentSession.records.length > 0) { 
+        pickerState.isLocal = false; 
+        loadPickerFrame(currentSession.activeRecordId, 0); 
+      }
       else { pickerState.isLocal = true; setupLocalVideo(); }
     });
 
@@ -274,11 +296,11 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
-    async function loadPickerFrame(frameNo) {
+    async function loadPickerFrame(recordId, frameNo) {
       if (pickerState.isLocal) return loadLocalFrame(frameNo);
       pickerLoading.classList.remove('d-none');
       try {
-        const res = await fetch(`/api/get_frame?record_id=${currentAnalysis.record_id}&frame_no=${frameNo}`);
+        const res = await fetch(`/api/get_frame?record_id=${recordId}&frame_no=${frameNo}`);
         const data = await res.json();
         if (data.success) {
           pickerState.bgImage.onload = () => {
@@ -322,9 +344,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     pickerSlider.oninput = () => { pickerFrameText.textContent = `Frame: ${pickerSlider.value} / ${pickerState.totalFrames - 1}`; };
-    pickerSlider.onchange = () => { loadPickerFrame(pickerSlider.value); };
-    document.getElementById('pickerPrevFrame').onclick = () => { if (pickerState.currentFrame > 0) loadPickerFrame(pickerState.currentFrame - 1); };
-    document.getElementById('pickerNextFrame').onclick = () => { if (pickerState.currentFrame < pickerState.totalFrames - 1) loadPickerFrame(pickerState.currentFrame + 1); };
+    pickerSlider.onchange = () => { loadPickerFrame(currentSession.activeRecordId, pickerSlider.value); };
+    document.getElementById('pickerPrevFrame').onclick = () => { 
+        if (pickerState.currentFrame > 0) loadPickerFrame(currentSession.activeRecordId, pickerState.currentFrame - 1); 
+    };
+    document.getElementById('pickerNextFrame').onclick = () => { 
+        if (pickerState.currentFrame < pickerState.totalFrames - 1) loadPickerFrame(currentSession.activeRecordId, pickerState.currentFrame + 1); 
+    };
     document.getElementById('pickerClearBtn').onclick = () => { pickerState.point = null; renderPickerCanvas(); };
 
     function fillTableData(side, frame, x, y) {
@@ -379,21 +405,31 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('progressBar').style.width = d.progress + '%';
             document.getElementById('progressStatus').textContent = d.status;
             document.getElementById('progressPercent').textContent = Math.round(d.progress) + '%';
-            if (d.progress >= 100) clearInterval(poll);
           }
         }, 1000);
         const res = await fetch('/upload', { method: 'POST', body: formData });
         const result = await res.json();
         if (res.ok) {
-          currentAnalysis.record_id = result.record_id;
-          currentAnalysis.person_records = result.person_records;
-          currentAnalysis.fps = result.fps || 30;
+          currentSession.session_id = result.session_id;
+          currentSession.records = result.results;
           toggleAutoMeasureBtn();
           document.getElementById('detectionResults').classList.remove('d-none');
           document.getElementById('uploadBtnContainer').classList.add('d-none');
-          document.getElementById('intervalList').innerHTML = result.person_records.map((r, i) => `<div>#${i+1}: ${((r[1]-r[0])/currentAnalysis.fps).toFixed(2)}s</div>`).join('');
+          
+          let html = '';
+          result.results.forEach((rec, i) => {
+            html += `<div class="mb-2"><strong>影片 ${i+1} (${rec.filename}):</strong>`;
+            if (rec.person_records.length > 0) {
+                html += rec.person_records.map((r, ri) => `<div class="ms-3 small">區間 ${ri+1}: ${((r[1]-r[0])/rec.fps).toFixed(2)}s</div>`).join('');
+            } else {
+                html += `<div class="ms-3 small text-danger">未偵測到人物</div>`;
+            }
+            html += `</div>`;
+          });
+          document.getElementById('intervalList').innerHTML = html;
           document.getElementById('detectionResults').scrollIntoView({ behavior: 'smooth' });
         } else alert(result.error);
+        clearInterval(poll);
       } catch (err) { alert('發生錯誤'); } finally { startBtn.disabled = false; }
     });
 
@@ -408,41 +444,92 @@ document.addEventListener('DOMContentLoaded', () => {
           document.getElementById('progressBar').style.width = d.progress + '%';
           document.getElementById('progressPercent').textContent = Math.round(d.progress) + '%';
           document.getElementById('progressStatus').textContent = d.status;
-          if (d.progress >= 100) clearInterval(poll);
         }
       }, 1000);
+
       try {
-        const res = await fetch('/api/analyze', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            record_id: currentAnalysis.record_id, job_id: jobId,
-            modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value),
-            person_records: currentAnalysis.person_records,
-            scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value },
-            athlete: document.getElementById('athlete').value,
-            session: document.getElementById('session').value
-          })
-        });
-        const result = await res.json();
-        if (res.ok) {
-          currentAnalysis.peak_data = result.peak_data;
-          const videoFrame = document.querySelector('.video-frame');
-          if (result.video_url) {
-            videoFrame.innerHTML = `<video id="previewVideo" width="100%" height="auto" controls autoplay><source src="${result.video_url}?t=${Date.now()}" type="video/mp4"></video>`;
-            document.getElementById('previewSpeedContainer').classList.remove('d-none');
-            videoFrame.style.background = 'transparent';
-          }
-          populatePeakTable(result.peak_data);
-          document.getElementById('imuModalBtn').classList.remove('d-none');
-          document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
-          document.getElementById('detectionResults').classList.add('d-none');
-          document.getElementById('uploadBtnContainer').classList.remove('d-none');
-        } else alert(result.error);
-      } catch (err) { alert('發生錯誤'); } finally { confirmBtn.disabled = false; }
+        for (let i = 0; i < currentSession.records.length; i++) {
+          const rec = currentSession.records[i];
+          document.getElementById('progressStatus').textContent = `正在分析影片 ${i+1}/${currentSession.records.length}...`;
+
+          const res = await fetch('/api/analyze', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              record_id: rec.record_id, job_id: jobId,
+              modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value),
+              person_records: rec.person_records,
+              scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value },
+              athlete: document.getElementById('athlete').value,
+              session: document.getElementById('session').value
+            })
+          });
+          const result = await res.json();
+          if (!res.ok) { alert(`影片 ${i+1} 分析失敗: ${result.error}`); break; }
+
+          // Store analysis result back into the record object
+          currentSession.records[i].analysis_result = result;
+        }
+        
+        // After all analyzed, show results
+        renderRecordSelector();
+        switchRecord(currentSession.records[0].record_id);
+        
+        document.getElementById('imuModalBtn').classList.remove('d-none');
+        document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('detectionResults').classList.add('d-none');
+        document.getElementById('uploadBtnContainer').classList.remove('d-none');
+        alert('所有影片分析完成！');
+      } catch (err) { alert('發生錯誤'); } finally { 
+        clearInterval(poll);
+        confirmBtn.disabled = false; 
+      }
     };
   }
 
-  // --- 5. Peak Table & Regeneration ---
+  function renderRecordSelector() {
+    const selector = document.getElementById('recordSelector');
+    selector.innerHTML = '';
+    selector.classList.remove('d-none');
+    
+    currentSession.records.forEach((rec, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm btn-outline-dark text-nowrap';
+        btn.id = `btn-rec-${rec.record_id}`;
+        btn.innerHTML = `<i class="bi bi-play-circle me-1"></i>影片 ${i+1}`;
+        btn.onclick = () => switchRecord(rec.record_id);
+        selector.appendChild(btn);
+    });
+  }
+
+  function switchRecord(recordId) {
+    const rec = currentSession.records.find(r => r.record_id === recordId);
+    if (!rec || !rec.analysis_result) return;
+    
+    currentSession.activeRecordId = recordId;
+    
+    // Update Active Button UI
+    document.querySelectorAll('#recordSelector button').forEach(b => b.classList.replace('btn-dark', 'btn-outline-dark'));
+    const activeBtn = document.getElementById(`btn-rec-${recordId}`);
+    if (activeBtn) activeBtn.classList.replace('btn-outline-dark', 'btn-dark');
+
+    // Update Video
+    const videoFrame = document.querySelector('.video-frame');
+    const result = rec.analysis_result;
+    if (result.video_url) {
+      videoFrame.innerHTML = `<video id="previewVideo" width="100%" height="auto" controls autoplay><source src="${result.video_url}?t=${Date.now()}" type="video/mp4"></video>`;
+      document.getElementById('previewSpeedContainer').classList.remove('d-none');
+      videoFrame.style.background = 'transparent';
+      
+      // Sync speed
+      const v = document.getElementById('previewVideo');
+      if (v) v.playbackRate = parseFloat(document.getElementById('previewSpeed').value);
+    }
+
+    // Update Peak Table
+    populatePeakTable(result.peak_data);
+  }
+
+  // --- 6. Peak Table & Regeneration ---
   window.clearFoot = (btn, side) => {
     const row = btn.closest('tr');
     row.querySelector(`.peak-frame-${side}`).textContent = '';
@@ -512,7 +599,10 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   document.getElementById('regenBtn').onclick = async () => {
-    if (!currentAnalysis.record_id) return;
+    if (!currentSession.activeRecordId) return;
+    const recordId = currentSession.activeRecordId;
+    const activeRec = currentSession.records.find(r => r.record_id === recordId);
+    
     const rows = document.querySelectorAll('.peak-row');
     const newPeakData = Array.from(rows).map(row => ({
       Frame_Right: parseInt(row.querySelector('.peak-frame-r').textContent) || null,
@@ -522,35 +612,56 @@ document.addEventListener('DOMContentLoaded', () => {
       X_Left: parseFloat(row.querySelector('.peak-x-l').textContent) || null,
       Y_Left: parseFloat(row.querySelector('.peak-y-l').textContent) || null
     }));
+    
+    const btn = document.getElementById('regenBtn');
+    btn.disabled = true; btn.textContent = '正在重新產生...';
+
     try {
       const res = await fetch('/regenerate_gait', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record_id: currentAnalysis.record_id, peak_data: newPeakData, scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value }, person_records: currentAnalysis.person_records })
+        body: JSON.stringify({ 
+            record_id: recordId, 
+            peak_data: newPeakData, 
+            scale_info: { reference: scaleRefInput.value, pixels: scalePxInput.value }, 
+            person_records: activeRec.person_records 
+        })
       });
       const result = await res.json();
       if (res.ok) {
         document.querySelector('.video-frame').innerHTML = `<video id="previewVideo" width="100%" height="auto" controls autoplay><source src="${result.video_url}&t=${Date.now()}" type="video/mp4"></video>`;
+        // Update local analysis_result cache
+        activeRec.analysis_result.video_url = result.video_url.split('?')[0];
+        activeRec.analysis_result.peak_data = newPeakData;
         alert('重新生成完成！');
       } else alert(result.error);
-    } catch (err) { alert('發生錯誤'); }
+    } catch (err) { alert('發生錯誤'); } finally {
+        btn.disabled = false; btn.textContent = '重新產生影片';
+    }
   };
 
   document.getElementById('saveProjectBtn').onclick = () => {
-    if (!currentAnalysis.record_id) return;
+    if (!currentSession.activeRecordId) return;
+    const recordId = currentSession.activeRecordId;
     const athleteSelect = document.getElementById('athlete');
     fetch('/api/line_notify', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ record_id: currentAnalysis.record_id, athlete_name: athleteSelect.options[athleteSelect.selectedIndex].text, session_name: document.getElementById('session').value, modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value) })
+      body: JSON.stringify({ 
+          record_id: recordId, 
+          athlete_name: athleteSelect.options[athleteSelect.selectedIndex].text, 
+          session_name: document.getElementById('session').value, 
+          modules: Array.from(document.querySelectorAll('input[name="m"]:checked')).map(cb => cb.value) 
+      })
     }).then(() => alert('專案已保存並發送通知！'));
   };
 
   async function loadImuChart() {
-    if (!currentAnalysis.record_id) return;
+    if (!currentSession.activeRecordId) return;
+    const recordId = currentSession.activeRecordId;
     const type = document.querySelector('input[name="imuType"]:checked').value;
     const container = document.getElementById('imuPlotContainer'), loading = document.getElementById('imuPlotLoading'), noData = document.getElementById('imuNoData');
     container.classList.add('d-none'); noData.classList.add('d-none'); loading.classList.remove('d-none');
     try {
-      const res = await fetch(`/api/imu_plot/${currentAnalysis.record_id}?type=${type}&t=${Date.now()}`);
+      const res = await fetch(`/api/imu_plot/${recordId}?type=${type}&t=${Date.now()}`);
       const data = await res.json();
       if (data.plot_url) { document.getElementById('imuModalPlotImg').src = data.plot_url; container.classList.remove('d-none'); }
       else noData.classList.remove('d-none');
