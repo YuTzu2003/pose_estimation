@@ -18,9 +18,7 @@ matplotlib.use('Agg')
 record_bp = Blueprint('record', __name__)
 JOBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'jobs')
 
-@record_bp.route('/api/records', methods=['GET'])
-def get_all_records():
-    player_id = request.args.get('player_id')
+def fetch_all_records_data(player_id=None):
     conn = get_conn()
     records = []
     try:
@@ -46,7 +44,6 @@ def get_all_records():
             record_id = row[0]
             project_folder = row[5]
             
-            # Dynamically find paths
             original_video = None
             result_video = None
             pose_csv = None
@@ -78,16 +75,22 @@ def get_all_records():
                 'scale_reference': row[9],
                 'scale_pixels': row[10]
             })
+        return records
+    finally:
+        release_conn(conn)
+
+@record_bp.route('/api/records', methods=['GET'])
+def get_all_records():
+    player_id = request.args.get('player_id')
+    try:
+        records = fetch_all_records_data(player_id)
         return jsonify(records), 200
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    finally:
-        release_conn(conn)
 
-@record_bp.route('/api/record/<record_id>', methods=['GET'])
-def get_record_details(record_id):
+def fetch_record_details_data(record_id):
     conn = get_conn()
     try:
         cursor = conn.cursor()
@@ -99,12 +102,11 @@ def get_record_details(record_id):
             WHERE R.Record_id = ?""", (record_id,))
         row = cursor.fetchone()
         if not row:
-            return jsonify({'error': 'Record not found'}), 404
+            return None
         
         project_folder = row[5]
         abs_project_dir = os.path.join(current_app.root_path, 'static', project_folder)
         
-        # Dynamically find paths
         original_video = None
         result_video = None
         pose_csv = None
@@ -122,8 +124,7 @@ def get_record_details(record_id):
                         ext = os.path.splitext(f)[1].lower()
                         if ext in ['.mp4', '.avi', '.mov']: original_video = f"{project_folder}/{f}"
 
-        # Find IMU CSV (Check Record folder first, then Session folder)
-        imu_csv = None
+        # Find IMU CSV
         if os.path.exists(abs_project_dir):
             for f in os.listdir(abs_project_dir):
                 if f.endswith('_imu.csv'):
@@ -131,7 +132,6 @@ def get_record_details(record_id):
                     break
         
         if not imu_csv:
-            # Check Session Folder
             conn_s = get_conn()
             try:
                 cursor_s = conn_s.cursor()
@@ -148,7 +148,6 @@ def get_record_details(record_id):
             finally:
                 release_conn(conn_s)
 
-        # Load Pose Data (Detailed)
         pose_data = []
         if pose_csv:
             csv_path = os.path.join(current_app.root_path, 'static', pose_csv)
@@ -164,7 +163,6 @@ def get_record_details(record_id):
                         entry[target] = float(r[src]) if not pd.isna(r[src]) else 0
                     pose_data.append(entry)
 
-        # Load IMU Data (Detailed)
         imu_data = []
         if imu_csv:
             imu_path = os.path.join(current_app.root_path, 'static', imu_csv)
@@ -179,7 +177,6 @@ def get_record_details(record_id):
                             entry[col] = float(r[col.replace('_', ' ')])
                     imu_data.append(entry)
 
-        # Read analysis_info.json
         analysis_info = {}
         json_path = os.path.join(abs_project_dir, 'analysis_info.json')
         if os.path.exists(json_path):
@@ -189,6 +186,16 @@ def get_record_details(record_id):
                     analysis_info = json.load(f)
             except Exception as e:
                 print(f"Error reading analysis_info.json: {e}")
+
+        # Fetch session videos for selector
+        cursor.execute("SELECT Record_id, Project_Folder FROM Record WHERE Session_id = ?", (row[11],))
+        session_rows = cursor.fetchall()
+        session_videos = []
+        for s_row in session_rows:
+            session_videos.append({
+                'id': s_row[0],
+                'project_folder': s_row[1]
+            })
 
         record_data = {
             'id': row[0],
@@ -210,16 +217,24 @@ def get_record_details(record_id):
             'pose_data': pose_data,
             'imu_data': imu_data,
             'modules': analysis_info.get('modules', []),
-            'session_id': row[11]
+            'session_id': row[11],
+            'session_videos': session_videos
         }
+        return record_data
+    finally:
+        release_conn(conn)
 
+@record_bp.route('/api/record/<record_id>', methods=['GET'])
+def get_record_details(record_id):
+    try:
+        record_data = fetch_record_details_data(record_id)
+        if not record_data:
+            return jsonify({'error': 'Record not found'}), 404
         return jsonify(record_data), 200
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    finally:
-        release_conn(conn)
 
 @record_bp.route('/api/player_records/<player_id>', methods=['GET'])
 def get_player_records(player_id):
