@@ -20,7 +20,7 @@ JOBS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 def fetch_all_records_data(player_id=None):
     conn = get_conn()
     records = []
-    try:
+    try: 
         cursor = conn.cursor()
         if player_id:
             cursor.execute("""
@@ -228,6 +228,27 @@ def get_all_records():
     try:
         records = fetch_all_records_data(player_id)
         return jsonify(records), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@record_bp.route('/api/player_records/<player_id>', methods=['GET'])
+def get_player_records(player_id):
+    try:
+        records = fetch_all_records_data(player_id)
+        # Transform to match what compare.js expects
+        result = []
+        for r in records:
+            result.append({
+                'Record_id': r['id'],
+                'Result_Video_Path': r['result_video'],
+                'Original_Video_Path': r['original_video'],
+                'Session_name': r['session'],
+                'Session_id': r['session_id'],
+                'Created_at': r['date']
+            })
+        return jsonify(result), 200
     except Exception as e:
         import traceback
         traceback.print_exc()

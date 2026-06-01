@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
     const athleteA = document.getElementById('athleteA');
     const athleteB = document.getElementById('athleteB');
+    const sessionA = document.getElementById('sessionA');
+    const sessionB = document.getElementById('sessionB');
     const recordA = document.getElementById('recordA');
     const recordB = document.getElementById('recordB');
     const compareType = document.getElementById('compareType');
@@ -8,6 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const imuPickerCol = document.getElementById('imuPickerCol');
     const runCompare = document.getElementById('runCompare');
     const cmpResult = document.getElementById('cmpResult');
+
+    let allRecordsA = [];
+    let allRecordsB = [];
     
     // UI Logic: Toggle picker columns based on compare type
     compareType.addEventListener('change', () => {
@@ -16,29 +21,73 @@ document.addEventListener('DOMContentLoaded', () => {
         imuPickerCol.style.display = (val === 'imu' || val === 'merged') ? 'block' : 'none';
     });
 
-    // Fetch records when athlete is selected
-    async function fetchRecords(athleteId, targetSelect) {
+    // Fetch records and populate sessions when athlete is selected
+    async function fetchAthleteData(athleteId, side) {
+        const sessionSelect = side === 'A' ? sessionA : sessionB;
+        const recordSelect = side === 'A' ? recordA : recordB;
+        const container = document.getElementById(`videoContainer${side}`);
+
         if (!athleteId) {
-            targetSelect.disabled = true;
-            targetSelect.innerHTML = '<option value="">選擇紀錄...</option>';
+            sessionSelect.disabled = true;
+            sessionSelect.innerHTML = '<option value="">選擇場次...</option>';
+            recordSelect.disabled = true;
+            recordSelect.innerHTML = '<option value="">選擇紀錄...</option>';
+            container.innerHTML = `<span class="text-white-50 small mono">VIDEO ${side}</span>`;
             return;
         }
+
         try {
             const res = await fetch(`/api/player_records/${athleteId}`);
             const records = await res.json();
-            let html = '<option value="">選擇紀錄...</option>';
+            if (side === 'A') allRecordsA = records; else allRecordsB = records;
+
+            // Group by Session
+            const sessions = {};
             records.forEach(r => {
-                html += `<option value="${r.Record_id}" data-video="${r.Result_Video_Path || r.Original_Video_Path}" data-session="${r.Session_name}">${r.Session_name} (${r.Created_at})</option>`;
+                if (!sessions[r.Session_id]) {
+                    sessions[r.Session_id] = { name: r.Session_name, date: r.Created_at };
+                }
             });
-            targetSelect.innerHTML = html;
-            targetSelect.disabled = false;
+
+            let html = '<option value="">選擇場次...</option>';
+            Object.keys(sessions).forEach(sid => {
+                html += `<option value="${sid}">${sessions[sid].name} (${sessions[sid].date})</option>`;
+            });
+            sessionSelect.innerHTML = html;
+            sessionSelect.disabled = false;
+            
+            // Reset Record Select
+            recordSelect.disabled = true;
+            recordSelect.innerHTML = '<option value="">選擇紀錄...</option>';
         } catch (err) {
             console.error("Fetch records error:", err);
         }
     }
 
-    athleteA.addEventListener('change', () => fetchRecords(athleteA.value, recordA));
-    athleteB.addEventListener('change', () => fetchRecords(athleteB.value, recordB));
+    function updateRecordSelect(sessionId, side) {
+        const recordSelect = side === 'A' ? recordA : recordB;
+        const records = side === 'A' ? allRecordsA : allRecordsB;
+        
+        if (!sessionId) {
+            recordSelect.disabled = true;
+            recordSelect.innerHTML = '<option value="">選擇紀錄...</option>';
+            return;
+        }
+
+        const filtered = records.filter(r => r.Session_id === sessionId);
+        let html = '<option value="">選擇紀錄...</option>';
+        filtered.forEach((r, idx) => {
+            html += `<option value="${r.Record_id}" data-video="${r.Result_Video_Path || r.Original_Video_Path}">影片 ${idx + 1} (${r.Record_id})</option>`;
+        });
+        recordSelect.innerHTML = html;
+        recordSelect.disabled = false;
+    }
+
+    athleteA.addEventListener('change', () => fetchAthleteData(athleteA.value, 'A'));
+    athleteB.addEventListener('change', () => fetchAthleteData(athleteB.value, 'B'));
+
+    sessionA.addEventListener('change', () => updateRecordSelect(sessionA.value, 'A'));
+    sessionB.addEventListener('change', () => updateRecordSelect(sessionB.value, 'B'));
 
     // Handle video preview
     function updateVideoPreview(selectEl, containerId) {

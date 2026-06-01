@@ -17,7 +17,7 @@
             <div class="tile-num">[RECORD A]</div>
             <h5 class="mb-3">選擇基準紀錄</h5>
             <div class="row g-2">
-              <div class="col-sm-6">
+              <div class="col-sm-4">
                 <label class="form-label small text-muted">選手 / ATHLETE</label>
                 <select id="athleteA" class="form-select form-select-sm">
                     <option value="">選擇選手...</option>
@@ -26,8 +26,14 @@
                     {% endfor %}
                 </select>
               </div>
-              <div class="col-sm-6">
+              <div class="col-sm-4">
                 <label class="form-label small text-muted">場次 / SESSION</label>
+                <select id="sessionA" class="form-select form-select-sm" disabled>
+                    <option value="">選擇場次...</option>
+                </select>
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label small text-muted">影片 / RECORD</label>
                 <select id="recordA" class="form-select form-select-sm" disabled>
                     <option value="">選擇紀錄...</option>
                 </select>
@@ -45,7 +51,7 @@
             <div class="tile-num">[RECORD B]</div>
             <h5 class="mb-3">選擇對照紀錄</h5>
             <div class="row g-2">
-              <div class="col-sm-6">
+              <div class="col-sm-4">
                 <label class="form-label small text-muted">選手 / ATHLETE</label>
                 <select id="athleteB" class="form-select form-select-sm">
                     <option value="">選擇選手...</option>
@@ -54,8 +60,14 @@
                     {% endfor %}
                 </select>
               </div>
-              <div class="col-sm-6">
+              <div class="col-sm-4">
                 <label class="form-label small text-muted">場次 / SESSION</label>
+                <select id="sessionB" class="form-select form-select-sm" disabled>
+                    <option value="">選擇場次...</option>
+                </select>
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label small text-muted">影片 / RECORD</label>
                 <select id="recordB" class="form-select form-select-sm" disabled>
                     <option value="">選擇紀錄...</option>
                 </select>
