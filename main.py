@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, 
                              QPushButton, QLabel, QTextEdit, QHBoxLayout,
-                             QLineEdit, QGroupBox, QFormLayout)
+                             QLineEdit, QGroupBox, QFormLayout, QComboBox)
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QMetaObject, Q_ARG, pyqtSlot
 from qasync import QEventLoop, asyncSlot
@@ -88,6 +88,28 @@ SET_API_CONTROL_ON   = bytearray([0x03, 0x1a, 0x01, 0x01])
 # AP 資訊讀取 UUIDs
 WIFI_SSID_UUID = "b5f90002-aa8d-11e3-9046-0002a5d5c51b"
 WIFI_PASS_UUID = "b5f90003-aa8d-11e3-9046-0002a5d5c51b"
+
+# --- GoPro Settings Maps ---
+RESOLUTION_MAP = {
+    "1080p": bytearray([0x03, 0x02, 0x01, 0x08]),
+    "1440p": bytearray([0x03, 0x02, 0x01, 0x07]),
+    "2.7K": bytearray([0x03, 0x02, 0x01, 0x04]),
+    "2.7K 4:3": bytearray([0x03, 0x02, 0x01, 0x06]),
+    "4K": bytearray([0x03, 0x02, 0x01, 0x01]),
+    "4K 4:3": bytearray([0x03, 0x02, 0x01, 0x09]),
+    "5.3K": bytearray([0x03, 0x02, 0x01, 0x12]),
+}
+
+FPS_MAP = {
+    "24 fps": bytearray([0x03, 0x03, 0x01, 0x0a]),
+    "25 fps": bytearray([0x03, 0x03, 0x01, 0x09]),
+    "30 fps": bytearray([0x03, 0x03, 0x01, 0x08]),
+    "50 fps": bytearray([0x03, 0x03, 0x01, 0x06]),
+    "60 fps": bytearray([0x03, 0x03, 0x01, 0x05]),
+    "100 fps": bytearray([0x03, 0x03, 0x01, 0x02]),
+    "120 fps": bytearray([0x03, 0x03, 0x01, 0x01]),
+    "240 fps": bytearray([0x03, 0x03, 0x01, 0x00]),
+}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -390,7 +412,7 @@ class GoProXsensApp(QWidget):
     def __init__(self):
         super().__init__()
         self.config = load_config()
-        self.gopro_client = None
+        self.gopro_clients = [] # 改為儲存多台裝置：[{'client': client, 'name': name}, ...]
         self.gopro_ip = "10.5.5.9"
         self.is_station_mode = False
         self.xsens = XsensManager()
@@ -607,7 +629,7 @@ class GoProXsensApp(QWidget):
         gl.setSpacing(15)
         
         hbl_gopro = QHBoxLayout()
-        self.btn_gopro_connect = QPushButton("建立藍牙連線")
+        self.btn_gopro_connect = QPushButton("搜尋並連線所有 GoPro")
         self.btn_gopro_connect.setObjectName("btn_gopro_connect")
         self.btn_gopro_connect.setFixedHeight(45)
         self.btn_gopro_connect.clicked.connect(self.connect_gopro)
@@ -621,10 +643,39 @@ class GoProXsensApp(QWidget):
         hbl_gopro.addWidget(self.btn_gopro_reset, 1)
         gl.addLayout(hbl_gopro)
 
+        # --- 同步設定區域 ---
+        settings_layout = QHBoxLayout()
+        
+        self.combo_res = QComboBox()
+        self.combo_res.addItems(list(RESOLUTION_MAP.keys()))
+        self.combo_res.setCurrentText("1080p")
+        
+        self.combo_fps = QComboBox()
+        self.combo_fps.addItems(list(FPS_MAP.keys()))
+        self.combo_fps.setCurrentText("60 fps")
+        
+        self.btn_apply_settings = QPushButton("同步設定至相機")
+        self.btn_apply_settings.setEnabled(False)
+        self.btn_apply_settings.clicked.connect(self.apply_gopro_settings)
+
+        settings_layout.addWidget(QLabel("解析度:"))
+        settings_layout.addWidget(self.combo_res)
+        settings_layout.addWidget(QLabel("幀數:"))
+        settings_layout.addWidget(self.combo_fps)
+        gl.addLayout(settings_layout)
+        gl.addWidget(self.btn_apply_settings)
+
+        ap_selector_layout = QHBoxLayout()
+        self.combo_ap_target = QComboBox()
+        self.combo_ap_target.setPlaceholderText("選擇相機...")
+        
         self.btn_fetch_ap = QPushButton("讀取相機熱點資訊")
         self.btn_fetch_ap.setEnabled(False)
         self.btn_fetch_ap.clicked.connect(self.fetch_gopro_ap_info)
-        gl.addWidget(self.btn_fetch_ap)
+        
+        ap_selector_layout.addWidget(self.combo_ap_target, 2)
+        ap_selector_layout.addWidget(self.btn_fetch_ap, 1)
+        gl.addLayout(ap_selector_layout)
 
         ap_box = QWidget()
         af = QFormLayout(ap_box)        
@@ -640,6 +691,7 @@ class GoProXsensApp(QWidget):
 
         gopro_gb.setLayout(gl)
         left_panel.addWidget(gopro_gb)
+
 
         # 3. Control Card
         ctrl_gb = QGroupBox("🎮 同步錄製任務")
@@ -760,55 +812,116 @@ class GoProXsensApp(QWidget):
 
     @asyncSlot()
     async def connect_gopro(self):
-        self.log("正在搜尋 GoPro (嘗試 10 秒，請確保相機未處於純傳輸模式)...")
+        self.log("正在搜尋附近的 GoPro...")
         self.btn_gopro_connect.setEnabled(False)
+        self.combo_ap_target.clear() # 清空舊選單
         try:
+            found_gopros = []
             for attempt in range(2):
                 devices = await BleakScanner.discover(timeout=5.0)
-                gopro = next((d for d in devices if d.name and "GoPro" in d.name), None)
-                if gopro: break
+                found_gopros = [d for d in devices if d.name and "GoPro" in d.name]
+                if found_gopros: break
             
-            if not gopro:
-                self.log("未找到 GoPro。提示：若插著 USB 且螢幕顯示「USB 已連接」，請先拔掉線再連線。")
+            if not found_gopros:
+                self.log("未找到 GoPro...")
                 self.btn_gopro_connect.setEnabled(True)
                 return
             
-            self.log(f"找到 {gopro.name}，連線中...")
-            self.gopro_client = BleakClient(gopro.address)
-            await self.gopro_client.connect()
-            try: await self.gopro_client.pair()
-            except: pass
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
-            self.log("GoPro 藍牙連線成功")
-            self.btn_fetch_ap.setEnabled(True)
-            self.check_ready_state()
+            self.log(f"找到 {len(found_gopros)} 台 GoPro，開始依序連線...")
+            
+            for gopro in found_gopros:
+                self.log(f"正在連線至 {gopro.name} ({gopro.address})...")
+                client = BleakClient(gopro.address)
+                try:
+                    await client.connect()
+                    try: await client.pair()
+                    except: pass
+                    await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                    await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                    self.gopro_clients.append({'client': client, 'name': gopro.name})
+                    self.combo_ap_target.addItem(gopro.name) # 加到下拉選單
+                    self.log(f"✅ {gopro.name} 連線成功！")
+                except Exception as e:
+                    self.log(f"❌ {gopro.name} 連線失敗: {e}")
+            
+            if self.gopro_clients:
+                self.btn_fetch_ap.setEnabled(True)
+                self.btn_apply_settings.setEnabled(True)
+                self.check_ready_state()
+            else:
+                self.log("所有 GoPro 連線皆失敗。")
+                self.btn_gopro_connect.setEnabled(True)
         except Exception as e:
-            self.log(f"GoPro 連線失敗: {e}")
+            self.log(f"GoPro 掃描失敗: {e}")
             self.btn_gopro_connect.setEnabled(True)
 
     @asyncSlot()
+    async def apply_gopro_settings(self):
+        if not self.gopro_clients: return
+        res_key = self.combo_res.currentText()
+        fps_key = self.combo_fps.currentText()
+        res_cmd = RESOLUTION_MAP[res_key]
+        fps_cmd = FPS_MAP[fps_key]
+        
+        self.btn_apply_settings.setEnabled(False)
+        self.log(f"正在將所有相機設定為: {res_key} / {fps_key} ...")
+        
+        for gopro in self.gopro_clients:
+            client = gopro['client']
+            name = gopro['name']
+            if client.is_connected:
+                try:
+                    # 發送解析度指令
+                    await client.write_gatt_char(GOPRO_SETTING_UUID, res_cmd, response=True)
+                    await asyncio.sleep(0.2)
+                    # 發送幀率指令
+                    await client.write_gatt_char(GOPRO_SETTING_UUID, fps_cmd, response=True)
+                    self.log(f"✅ {name} 設定成功。")
+                except Exception as e:
+                    self.log(f"❌ {name} 設定失敗: {e}")
+        
+        self.log("所有相機設定套用完畢。")
+        self.btn_apply_settings.setEnabled(True)
+
+    @asyncSlot()
     async def fetch_gopro_ap_info(self):
-        if not self.gopro_client or not self.gopro_client.is_connected: return
-        self.log("正在從相機讀取熱點資訊...")
+        selected_name = self.combo_ap_target.currentText()
+        if not selected_name:
+            self.log("請先從下拉選單選擇一台相機")
+            return
+            
+        target_gopro = next((g for g in self.gopro_clients if g['name'] == selected_name), None)
+        if not target_gopro or not target_gopro['client'].is_connected:
+            self.log(f"錯誤: {selected_name} 已斷線")
+            return
+        
+        client = target_gopro['client']
+        self.log(f"正在從 {selected_name} 讀取熱點資訊...")
         try:
-            ssid_bytes = await self.gopro_client.read_gatt_char(WIFI_SSID_UUID)
-            pass_bytes = await self.gopro_client.read_gatt_char(WIFI_PASS_UUID)
+            ssid_bytes = await client.read_gatt_char(WIFI_SSID_UUID)
+            pass_bytes = await client.read_gatt_char(WIFI_PASS_UUID)
             ssid = ssid_bytes.decode('utf-8').strip('\x00')
             password = pass_bytes.decode('utf-8').strip('\x00')
             self.input_ap_ssid.setText(ssid)
             self.input_ap_pass.setText(password)
-            self.log(f"讀取成功！SSID: {ssid}")
+            self.log(f"✅ {selected_name} 讀取成功！SSID: {ssid}")
         except Exception as e:
             self.log(f"讀取熱點資訊失敗: {e}")
 
     def check_ready_state(self):
-        gopro_ready = self.gopro_client and self.gopro_client.is_connected
+        gopro_ready = len(self.gopro_clients) > 0 and all(c['client'].is_connected for c in self.gopro_clients)
         xsens_ready = self.xsens._is_connected
+        
         if gopro_ready and xsens_ready:
             self.btn_start.setEnabled(True)
             self.status_label.setText("狀態: 裝置皆已就緒")
             self.status_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
+        else:
+            reasons = []
+            if not gopro_ready: reasons.append("GoPro 未連線")
+            if not xsens_ready: reasons.append("Xsens 未連線")
+            self.status_label.setText(f"狀態: 等待中 ({', '.join(reasons)})")
+            self.status_label.setStyleSheet("color: #a6accd;")
 
     @asyncSlot()
     async def provision_gopro_wifi(self):
@@ -820,59 +933,41 @@ class GoProXsensApp(QWidget):
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(False)
         
-        # 1. 快速啟動嘗試 (最快路徑)
-        if self.gopro_client and self.gopro_client.is_connected:
+        connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        if not connected_clients:
+            self.log("❌ 錯誤: 沒有已連線的 GoPro")
+            self.btn_start.setEnabled(True)
+            return
+
+        self.log(f"正在啟動 {len(connected_clients)} 台 GoPro 錄影...")
+        
+        async def start_camera(gopro):
+            client = gopro['client']
+            name = gopro['name']
             try:
-                self.log("正在快速啟動錄影...")
-                # 嘗試直接錄影，不重連藍牙以節省時間
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
-                
-                # 同時啟動 Xsens
-                self.xsens.start_logging()
-                
-                self.log("同步錄製中...")
-                self.btn_stop.setEnabled(True)
-                self.status_label.setText("狀態: 正在錄製")
-                self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
-                return
-            except Exception:
-                self.log("快速啟動未響應，進入深度恢復程序...")
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
+                return True, name
+            except Exception as e:
+                return False, f"{name}: {e}"
 
-        # 2. 深度恢復程序 (只有在快速啟動失敗或 USB 下載後才會執行)
-        self.log("執行硬體重新同步 (約需 3-5 秒)...")
+        # 同時啟動所有相機錄影
+        results = await asyncio.gather(*(start_camera(c) for c in connected_clients), return_exceptions=True)
         
-        # 確保 Xsens 先啟動
-        self.xsens.start_logging()
-        
-        try:
-            if not self.gopro_client or not self.gopro_client.is_connected:
-                await self.connect_gopro()
+        success_count = 0
+        for res in results:
+            if isinstance(res, tuple) and res[0]:
+                success_count += 1
             else:
-                # 重新同步藍牙控制頻道
-                try:
-                    await self.gopro_client.disconnect()
-                    await asyncio.sleep(0.5)
-                    await self.connect_gopro()
-                except: pass
+                self.log(f"啟動失敗: {res}")
 
-            if self.gopro_client and self.gopro_client.is_connected:
-                # 強制切換模式
-                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
-                await asyncio.sleep(1.0)
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
-                
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, START_RECORDING, response=True)
-                self.log("同步錄製中...")
-                self.btn_stop.setEnabled(True)
-                self.status_label.setText("狀態: 正在錄製")
-                self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
-            else:
-                throw("藍牙重連失敗")
-
-        except Exception as e:
-            self.log(f"啟動失敗: {e}")
-            self.xsens.stop_logging()
+        if success_count > 0:
+            self.xsens.start_logging()
+            self.log(f"同步錄製中... (成功: {success_count}/{len(connected_clients)})")
+            self.btn_stop.setEnabled(True)
+            self.status_label.setText("狀態: 正在錄製")
+            self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
+        else:
+            self.log("所有相機啟動錄影失敗。")
             self.btn_start.setEnabled(True)
 
     @asyncSlot()
@@ -880,34 +975,55 @@ class GoProXsensApp(QWidget):
         self.btn_stop.setEnabled(False)
         self.btn_start.setEnabled(False)
         
-        try:
-            self.log("正在發送 GoPro 停止錄影指令...")
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
-            
-            # 等一下再送喚醒訊號，避免相機死機
-            await asyncio.sleep(1.0)
-            
-            self.log("重新授權 API 控制權限...")
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
-            
-            self.log("正在喚醒 GoPro Wi-Fi (供下載使用)...")
-            await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
-            self.log("錄影已停止")
-        except Exception as e:
-            self.log(f"GoPro 停止指令異常: {e}")
+        connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        if not connected_clients:
+            self.log("⚠️ 警告: 沒有已連線的 GoPro 可供停止")
+            self.xsens.stop_logging()
+            self.btn_start.setEnabled(True)
+            return
 
-        # 確保 Xsens 檔案寫入完全關閉
+        self.log(f"正在停止 {len(connected_clients)} 台 GoPro 錄影...")
+
+        async def stop_camera(gopro):
+            client = gopro['client']
+            name = gopro['name']
+            try:
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, STOP_RECORDING, response=True)
+                return True, name
+            except Exception as e:
+                return False, f"{name}: {e}"
+
+        # 1. 發送停止指令
+        await asyncio.gather(*(stop_camera(c) for c in connected_clients), return_exceptions=True)
+        
+        # 2. 確保 Xsens 檔案寫入完全關閉
         self.log("正在儲存 Xsens 數據...")
         self.xsens.stop_logging()
         
+        # 3. 逐一發送後續指令 (WAKE_WIFI 等)
+        await asyncio.sleep(1.0)
+        self.log("正在重新授權 API 並喚醒 Wi-Fi...")
+        
+        async def post_stop_commands(gopro):
+            client = gopro['client']
+            name = gopro['name']
+            try:
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
+            except Exception as e:
+                self.log(f"相機 {name} 後續指令失敗: {e}")
+
+        await asyncio.gather(*(post_stop_commands(c) for c in connected_clients), return_exceptions=True)
+
+        self.log("錄影已停止")
+        
         # 全面解鎖按鈕
-        await asyncio.sleep(0.5)
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_download_wifi.setEnabled(True)
         self.btn_download_usb.setEnabled(True)
-        self.btn_reset_xsens.setEnabled(True) # 提醒歸零
+        self.btn_reset_xsens.setEnabled(True) 
         self.status_label.setText("狀態: 錄製完成")
         self.status_label.setStyleSheet("color: #dcdcdc; font-weight: bold;")
         self.log("提示：若要進行下一次測量，請點擊「方向歸零」後再點擊「開始」。")
@@ -1007,10 +1123,18 @@ class GoProXsensApp(QWidget):
         self.btn_download_usb.setEnabled(False)
         self.log("啟動 USB 下載流程...")
         
+        connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        
         try:
-            if self.gopro_client and self.gopro_client.is_connected:
-                self.log("正在切換 GoPro 至 USB 傳輸模式 (MTP)...")
-                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_MTP, response=True)
+            if connected_clients:
+                self.log(f"正在將 {len(connected_clients)} 台 GoPro 切換至 USB 傳輸模式 (MTP)...")
+                
+                async def set_mtp(gopro):
+                    try:
+                        await gopro['client'].write_gatt_char(GOPRO_SETTING_UUID, SET_USB_MTP, response=True)
+                    except: pass
+
+                await asyncio.gather(*(set_mtp(c) for c in connected_clients), return_exceptions=True)
                 self.log("等待 Windows 辨識裝置 (5秒)...")
                 await asyncio.sleep(5.0)
             
@@ -1025,12 +1149,19 @@ class GoProXsensApp(QWidget):
                 self.log("提示：請確保 GoPro 處於 MTP/連線模式，且已插上 USB 線。")
 
             # 下載完成後，立即將相機切回攝影模式
-            if self.gopro_client and self.gopro_client.is_connected:
-                self.log("正在將 GoPro 恢復至攝影模式...")
-                await self.gopro_client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
-                await asyncio.sleep(1.0)
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
-                await self.gopro_client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+            if connected_clients:
+                self.log("正在將所有 GoPro 恢復至攝影模式...")
+                
+                async def restore_camera(gopro):
+                    client = gopro['client']
+                    try:
+                        await client.write_gatt_char(GOPRO_SETTING_UUID, SET_USB_CONNECT, response=True)
+                        await asyncio.sleep(0.5)
+                        await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                        await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                    except: pass
+
+                await asyncio.gather(*(restore_camera(c) for c in connected_clients), return_exceptions=True)
                 self.log("相機狀態已還原，可隨時開始新的錄製。")
             else:
                 self.log("傳輸期間藍牙可能中斷，下次錄影前將嘗試自動重連。")
@@ -1248,9 +1379,11 @@ class GoProXsensApp(QWidget):
         self.log("正在執行 GoPro 硬重置連線...")
         self.btn_gopro_reset.setEnabled(False)
         try:
-            if self.gopro_client:
-                await self.gopro_client.disconnect()
-                await asyncio.sleep(1.0)
+            for gopro in self.gopro_clients:
+                try: await gopro['client'].disconnect()
+                except: pass
+            self.gopro_clients.clear()
+            await asyncio.sleep(1.0)
             await self.connect_gopro()
             self.log("GoPro 連線已重置")
         except Exception as e:
@@ -1264,7 +1397,8 @@ class GoProXsensApp(QWidget):
         }
         save_config(new_config)
         self.xsens.cleanup()
-        if self.gopro_client: asyncio.create_task(self.gopro_client.disconnect())
+        for gopro in self.gopro_clients:
+            asyncio.create_task(gopro['client'].disconnect())
         event.accept()
 
 if __name__ == "__main__":

@@ -4,9 +4,14 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
-dependencies = []
+dependencies = [
+    "xsensdeviceapi",
+]
 
 [dependency-groups]
 dev = [
     "pyinstaller>=6.20.0",
 ]
+
+[tool.uv.sources]
+xsensdeviceapi = { path = "C:/Program Files/Xsens/MT Software Suite 2022.2/MT SDK/Python/x64/xsensdeviceapi-2022.2.0-cp38-none-win_amd64.whl" }
