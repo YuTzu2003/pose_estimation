@@ -14,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, 
                              QPushButton, QLabel, QTextEdit, QHBoxLayout,
-                             QLineEdit, QGroupBox, QFormLayout, QComboBox)
+                             QLineEdit, QGroupBox, QFormLayout, QComboBox,
+                             QCheckBox, QScrollArea, QFrame)
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QMetaObject, Q_ARG, pyqtSlot
 from qasync import QEventLoop, asyncSlot
@@ -90,14 +91,20 @@ WIFI_SSID_UUID = "b5f90002-aa8d-11e3-9046-0002a5d5c51b"
 WIFI_PASS_UUID = "b5f90003-aa8d-11e3-9046-0002a5d5c51b"
 
 # --- GoPro Settings Maps ---
+ASPECT_RATIO_MAP = {
+    "16:9": bytearray([0x03, 0x6c, 0x01, 0x01]),
+    "4:3": bytearray([0x03, 0x6c, 0x01, 0x00]),
+    "8:7": bytearray([0x03, 0x6c, 0x01, 0x03]),
+}
+
 RESOLUTION_MAP = {
-    "1080p": bytearray([0x03, 0x02, 0x01, 0x08]),
+    "1080p": bytearray([0x03, 0x02, 0x01, 0x09]),
     "1440p": bytearray([0x03, 0x02, 0x01, 0x07]),
     "2.7K": bytearray([0x03, 0x02, 0x01, 0x04]),
     "2.7K 4:3": bytearray([0x03, 0x02, 0x01, 0x06]),
     "4K": bytearray([0x03, 0x02, 0x01, 0x01]),
-    "4K 4:3": bytearray([0x03, 0x02, 0x01, 0x09]),
-    "5.3K": bytearray([0x03, 0x02, 0x01, 0x12]),
+    "4K 4:3": bytearray([0x03, 0x02, 0x01, 0x12]),
+    "5.3K": bytearray([0x03, 0x02, 0x01, 0x64]),
 }
 
 FPS_MAP = {
@@ -109,6 +116,33 @@ FPS_MAP = {
     "100 fps": bytearray([0x03, 0x03, 0x01, 0x02]),
     "120 fps": bytearray([0x03, 0x03, 0x01, 0x01]),
     "240 fps": bytearray([0x03, 0x03, 0x01, 0x00]),
+}
+
+GOPRO_SETTINGS_CONSTRAINTS = {
+    "16:9": {
+        "resolutions": ["5.3K", "4K", "2.7K", "1080p"],
+        "fps": {
+            "5.3K": ["60 fps", "30 fps", "24 fps"],
+            "4K": ["120 fps", "60 fps", "30 fps", "24 fps"],
+            "2.7K": ["240 fps", "120 fps", "60 fps"],
+            "1080p": ["240 fps", "120 fps", "60 fps", "30 fps", "24 fps"]
+        }
+    },
+    "4:3": {
+        "resolutions": ["5.3K", "4K", "2.7K"],
+        "fps": {
+            "5.3K": ["30 fps", "24 fps"],
+            "4K": ["60 fps", "30 fps", "24 fps"],
+            "2.7K": ["120 fps", "60 fps"]
+        }
+    },
+    "8:7": {
+        "resolutions": ["5.3K", "4K"],
+        "fps": {
+            "5.3K": ["30 fps", "24 fps"],
+            "4K": ["60 fps"]
+        }
+    }
 }
 
 logging.basicConfig(level=logging.INFO)
@@ -463,9 +497,9 @@ class GoProXsensApp(QWidget):
             QGroupBox {
                 background-color: #1a1c25;
                 border: 1px solid #2d3143;
-                border-radius: 15px;
-                margin-top: 30px;
-                padding: 20px 15px 15px 15px;
+                border-radius: 12px;
+                margin-top: 15px;
+                padding: 15px 10px 10px 10px;
                 font-weight: bold;
                 font-size: 18px; /* Increased */
                 color: #89ddff;
@@ -473,8 +507,8 @@ class GoProXsensApp(QWidget):
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                left: 20px;
-                padding: 0 10px;
+                left: 15px;
+                padding: 0 5px;
                 background-color: #0f111a;
             }
             /* 通用按鈕 */
@@ -562,16 +596,44 @@ class GoProXsensApp(QWidget):
                 color: #676e95;
                 margin-bottom: 5px;
             }
+            
+            /* 複選框 (QCheckBox) */
+            QCheckBox {
+                spacing: 8px;
+                font-size: 16px;
+                color: #a6accd;
+                margin-bottom: 5px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                background-color: #090b10;
+                border: 1px solid #2d3143;
+                border-radius: 4px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #82aaff;
+                border-color: #82aaff;
+            }
+            
+            /* 滾動區域 */
+            QScrollArea#content_scroll_area {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollArea#content_scroll_area > QWidget > QWidget {
+                background-color: transparent;
+            }
         """)
 
     def init_ui(self):
         self.setWindowTitle("GoPro & Xsens Control Hub")
         self.setWindowIcon(QIcon(resource_path("logo.png")))
-        self.setMinimumSize(950, 950) # Increased width slightly for larger text
+        self.setMinimumSize(950, 800) # Increased width slightly for larger text
         
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(30, 30, 30, 30)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
 
         # --- Header Section ---
         header_widget = QWidget()
@@ -626,7 +688,7 @@ class GoProXsensApp(QWidget):
         # 2. GoPro Card
         gopro_gb = QGroupBox("📷 GoPro 攝影機控制")
         gl = QVBoxLayout()
-        gl.setSpacing(15)
+        gl.setSpacing(8)
         
         hbl_gopro = QHBoxLayout()
         self.btn_gopro_connect = QPushButton("搜尋並連線所有 GoPro")
@@ -646,18 +708,28 @@ class GoProXsensApp(QWidget):
         # --- 同步設定區域 ---
         settings_layout = QHBoxLayout()
         
+        self.combo_aspect = QComboBox()
+        self.combo_aspect.addItems(list(GOPRO_SETTINGS_CONSTRAINTS.keys()))
+        self.combo_aspect.setCurrentText("16:9")
+        
         self.combo_res = QComboBox()
-        self.combo_res.addItems(list(RESOLUTION_MAP.keys()))
+        self.combo_res.addItems(GOPRO_SETTINGS_CONSTRAINTS["16:9"]["resolutions"])
         self.combo_res.setCurrentText("1080p")
         
         self.combo_fps = QComboBox()
-        self.combo_fps.addItems(list(FPS_MAP.keys()))
+        self.combo_fps.addItems(GOPRO_SETTINGS_CONSTRAINTS["16:9"]["fps"]["1080p"])
         self.combo_fps.setCurrentText("60 fps")
+        
+        # Connect signals for constraint updates
+        self.combo_aspect.currentTextChanged.connect(self.update_resolution_options)
+        self.combo_res.currentTextChanged.connect(self.update_fps_options)
         
         self.btn_apply_settings = QPushButton("同步設定至相機")
         self.btn_apply_settings.setEnabled(False)
         self.btn_apply_settings.clicked.connect(self.apply_gopro_settings)
 
+        settings_layout.addWidget(QLabel("比例:"))
+        settings_layout.addWidget(self.combo_aspect)
         settings_layout.addWidget(QLabel("解析度:"))
         settings_layout.addWidget(self.combo_res)
         settings_layout.addWidget(QLabel("幀數:"))
@@ -679,6 +751,8 @@ class GoProXsensApp(QWidget):
 
         ap_box = QWidget()
         af = QFormLayout(ap_box)        
+        af.setContentsMargins(0, 0, 0, 0)
+        af.setVerticalSpacing(6)
         self.input_ap_ssid = QLineEdit(self.config["ap_ssid"])
         self.input_ap_pass = QLineEdit(self.config["ap_pass"])
         lbs_ssid = QLabel("熱點SSID:")
@@ -697,6 +771,12 @@ class GoProXsensApp(QWidget):
         ctrl_gb = QGroupBox("🎮 同步錄製任務")
         cl = QVBoxLayout()
         cl.setSpacing(15)
+        
+        self.cb_enable_xsens = QCheckBox("啟用 Xsens 數據錄製")
+        self.cb_enable_xsens.setChecked(True)
+        self.cb_enable_xsens.stateChanged.connect(self.check_ready_state)
+        cl.addWidget(self.cb_enable_xsens)
+        
         cbl = QHBoxLayout()
         cbl.setSpacing(15)
         self.btn_start = QPushButton("🔴 開始同步錄製")
@@ -858,30 +938,111 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def apply_gopro_settings(self):
         if not self.gopro_clients: return
+        aspect_key = self.combo_aspect.currentText()
         res_key = self.combo_res.currentText()
         fps_key = self.combo_fps.currentText()
+        
+        aspect_cmd = ASPECT_RATIO_MAP[aspect_key]
         res_cmd = RESOLUTION_MAP[res_key]
         fps_cmd = FPS_MAP[fps_key]
         
+        # GoPro mode command for Flat Video Mode (03 02 01 00)
+        SET_MODE_VIDEO = bytearray([0x03, 0x02, 0x01, 0x00])
+        
         self.btn_apply_settings.setEnabled(False)
-        self.log(f"正在將所有相機設定為: {res_key} / {fps_key} ...")
+        self.log(f"正在將所有相機設定為: 比例 {aspect_key} / 解析度 {res_key} / 幀數 {fps_key} ...")
         
         for gopro in self.gopro_clients:
             client = gopro['client']
             name = gopro['name']
             if client.is_connected:
                 try:
-                    # 發送解析度指令
+                    # 0. 確保相機切換到「影片模式」 (不然設定指令會被相機忽略)
+                    self.log(f"正在將 {name} 切換至影片模式...")
+                    await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_MODE_VIDEO, response=True)
+                    await asyncio.sleep(0.8) # 模式切換需要時間初始化感光元件
+                    
+                    # 1. 切換比例 (Setting ID 108)
+                    self.log(f"正在設定 {name} 畫面比例...")
+                    await client.write_gatt_char(GOPRO_SETTING_UUID, aspect_cmd, response=True)
+                    await asyncio.sleep(0.8)
+                    
+                    # 2. 發送解析度指令
+                    self.log(f"正在設定 {name} 解析度...")
                     await client.write_gatt_char(GOPRO_SETTING_UUID, res_cmd, response=True)
-                    await asyncio.sleep(0.2)
-                    # 發送幀率指令
+                    await asyncio.sleep(0.8)
+                    
+                    # 3. 發送幀率指令
+                    self.log(f"正在設定 {name} 幀率...")
                     await client.write_gatt_char(GOPRO_SETTING_UUID, fps_cmd, response=True)
-                    self.log(f"✅ {name} 設定成功。")
+                    await asyncio.sleep(0.5)
+                    
+                    self.log(f"✅ {name} 所有設定套用成功。")
                 except Exception as e:
-                    self.log(f"❌ {name} 設定失敗: {e}")
+                    self.log(f"❌ {name} 套用設定失敗: {e}")
         
         self.log("所有相機設定套用完畢。")
         self.btn_apply_settings.setEnabled(True)
+
+    def update_resolution_options(self):
+        aspect = self.combo_aspect.currentText()
+        if aspect not in GOPRO_SETTINGS_CONSTRAINTS:
+            return
+            
+        current_res = self.combo_res.currentText()
+        allowed_res = GOPRO_SETTINGS_CONSTRAINTS[aspect]["resolutions"]
+        
+        self.combo_res.blockSignals(True)
+        self.combo_res.clear()
+        self.combo_res.addItems(allowed_res)
+        
+        if current_res in allowed_res:
+            self.combo_res.setCurrentText(current_res)
+        else:
+            self.combo_res.setCurrentIndex(0)
+        self.combo_res.blockSignals(False)
+        
+        self.update_fps_options()
+
+    def update_fps_options(self):
+        aspect = self.combo_aspect.currentText()
+        res = self.combo_res.currentText()
+        if aspect not in GOPRO_SETTINGS_CONSTRAINTS or res not in GOPRO_SETTINGS_CONSTRAINTS[aspect]["fps"]:
+            return
+            
+        current_fps = self.combo_fps.currentText()
+        allowed_fps = GOPRO_SETTINGS_CONSTRAINTS[aspect]["fps"][res]
+        
+        self.combo_fps.blockSignals(True)
+        self.combo_fps.clear()
+        self.combo_fps.addItems(allowed_fps)
+        
+        if current_fps in allowed_fps:
+            self.combo_fps.setCurrentText(current_fps)
+        else:
+            self.combo_fps.setCurrentIndex(0)
+        self.combo_fps.blockSignals(False)
+
+    def check_ready_state(self, state=None):
+        gopro_ready = len(self.gopro_clients) > 0 and all(c['client'].is_connected for c in self.gopro_clients)
+        use_xsens = self.cb_enable_xsens.isChecked()
+        xsens_ready = self.xsens._is_connected
+        
+        if gopro_ready and (not use_xsens or xsens_ready):
+            self.btn_start.setEnabled(True)
+            if use_xsens:
+                self.status_label.setText("狀態: 裝置皆已就緒")
+                self.status_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
+            else:
+                self.status_label.setText("狀態: GoPro 已就緒 (僅錄製影片)")
+                self.status_label.setStyleSheet("color: #82aaff; font-weight: bold;")
+        else:
+            reasons = []
+            if not gopro_ready: reasons.append("GoPro 未連線")
+            if use_xsens and not xsens_ready: reasons.append("Xsens 未連線")
+            self.btn_start.setEnabled(False)
+            self.status_label.setText(f"狀態: 等待中 ({', '.join(reasons)})")
+            self.status_label.setStyleSheet("color: #a6accd;")
 
     @asyncSlot()
     async def fetch_gopro_ap_info(self):
@@ -908,20 +1069,6 @@ class GoProXsensApp(QWidget):
         except Exception as e:
             self.log(f"讀取熱點資訊失敗: {e}")
 
-    def check_ready_state(self):
-        gopro_ready = len(self.gopro_clients) > 0 and all(c['client'].is_connected for c in self.gopro_clients)
-        xsens_ready = self.xsens._is_connected
-        
-        if gopro_ready and xsens_ready:
-            self.btn_start.setEnabled(True)
-            self.status_label.setText("狀態: 裝置皆已就緒")
-            self.status_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
-        else:
-            reasons = []
-            if not gopro_ready: reasons.append("GoPro 未連線")
-            if not xsens_ready: reasons.append("Xsens 未連線")
-            self.status_label.setText(f"狀態: 等待中 ({', '.join(reasons)})")
-            self.status_label.setStyleSheet("color: #a6accd;")
 
     @asyncSlot()
     async def provision_gopro_wifi(self):
@@ -961,8 +1108,11 @@ class GoProXsensApp(QWidget):
                 self.log(f"啟動失敗: {res}")
 
         if success_count > 0:
-            self.xsens.start_logging()
-            self.log(f"同步錄製中... (成功: {success_count}/{len(connected_clients)})")
+            if self.cb_enable_xsens.isChecked() and self.xsens._is_connected:
+                self.xsens.start_logging()
+                self.log(f"同步錄製中... (成功: {success_count}/{len(connected_clients)})")
+            else:
+                self.log(f"GoPro 錄影中... (成功: {success_count}/{len(connected_clients)})")
             self.btn_stop.setEnabled(True)
             self.status_label.setText("狀態: 正在錄製")
             self.status_label.setStyleSheet("color: #f44747; font-weight: bold;")
@@ -978,7 +1128,8 @@ class GoProXsensApp(QWidget):
         connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
         if not connected_clients:
             self.log("⚠️ 警告: 沒有已連線的 GoPro 可供停止")
-            self.xsens.stop_logging()
+            if self.cb_enable_xsens.isChecked() and self.xsens._is_connected:
+                self.xsens.stop_logging()
             self.btn_start.setEnabled(True)
             return
 
@@ -997,8 +1148,9 @@ class GoProXsensApp(QWidget):
         await asyncio.gather(*(stop_camera(c) for c in connected_clients), return_exceptions=True)
         
         # 2. 確保 Xsens 檔案寫入完全關閉
-        self.log("正在儲存 Xsens 數據...")
-        self.xsens.stop_logging()
+        if self.cb_enable_xsens.isChecked() and self.xsens._is_connected:
+            self.log("正在儲存 Xsens 數據...")
+            self.xsens.stop_logging()
         
         # 3. 逐一發送後續指令 (WAKE_WIFI 等)
         await asyncio.sleep(1.0)
@@ -1031,34 +1183,65 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def download_via_wifi(self):
         self.btn_download_wifi.setEnabled(False)
-        self.log("啟動 Wi-Fi 自動切換與下載流程...")
         
-        ssid, password = self.input_ap_ssid.text(), self.input_ap_pass.text()
-        if not ssid:
-            self.log("錯誤：未設定 AP SSID，請先點擊「讀取相機熱點資訊」。")
+        connected_gopros = [c for c in self.gopro_clients if c['client'].is_connected]
+        if not connected_gopros:
+            self.log("❌ 錯誤: 沒有已連線的 GoPro 進行 Wi-Fi 下載。請先連線相機。")
             self.btn_download_wifi.setEnabled(True)
             return
 
-        # 1. 偵測目前環境，如果已經連著就直接下載
-        gopro_ip = self.get_gopro_gateway_ip()
-        if self._ping_gopro(gopro_ip):
-            self.log(f"偵測到已連線至 GoPro ({gopro_ip})，直接開始下載...")
-            await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
-            self.btn_download_wifi.setEnabled(True)
-            return
-
-        # 2. 執行切換 (使用 gopro_control.py 的邏輯)
-        if await self.connect_windows_wifi(ssid, password):
-            self.log("等待 Windows 穩定連線 (10秒)...")
-            await asyncio.sleep(10)
+        self.log(f"啟動 {len(connected_gopros)} 台 GoPro Wi-Fi 循序切換與下載流程...")
+        
+        for idx, gopro in enumerate(connected_gopros):
+            name = gopro['name']
+            client = gopro['client']
+            self.log(f"----------------------------------------")
+            self.log(f"正在處理第 {idx+1}/{len(connected_gopros)} 台相機: {name} ...")
             
-            # 切換完後重新抓一次閘道 IP
-            gopro_ip = self.get_gopro_gateway_ip()
-            self.log(f"正在對接相機 IP: {gopro_ip}")
-            await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip)
-        else:
-            self.log("無法執行 Wi-Fi 切換指令。")
+            try:
+                # 1. 讀取此台相機的熱點資訊
+                self.log(f"正在從 {name} 讀取熱點資訊...")
+                ssid_bytes = await client.read_gatt_char(WIFI_SSID_UUID)
+                pass_bytes = await client.read_gatt_char(WIFI_PASS_UUID)
+                ssid = ssid_bytes.decode('utf-8').strip('\x00')
+                password = pass_bytes.decode('utf-8').strip('\x00')
+                self.log(f"取得熱點 SSID: {ssid}")
+                
+                # 更新 UI 的欄位以供參考
+                self.input_ap_ssid.setText(ssid)
+                self.input_ap_pass.setText(password)
+                
+                # 2. 檢查目前是否已連線到此 Wi-Fi AP
+                gopro_ip = self.get_gopro_gateway_ip()
+                is_connected_to_correct_ap = False
+                
+                # 在 Windows 下檢測目前 Wi-Fi 的 SSID
+                try:
+                    out = subprocess.run("netsh wlan show interfaces", shell=True, capture_output=True, text=True, encoding="cp950")
+                    if ssid in out.stdout:
+                        is_connected_to_correct_ap = True
+                except:
+                    pass
+                
+                if is_connected_to_correct_ap and self._ping_gopro(gopro_ip):
+                    self.log(f"已處於該相機的 Wi-Fi 熱點 ({ssid})，直接下載最新影片...")
+                    await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip, ssid)
+                else:
+                    self.log(f"開始連接該相機的 Wi-Fi 熱點 ({ssid})...")
+                    if await self.connect_windows_wifi(ssid, password):
+                        self.log("等待 Windows 穩定連線 (10秒)...")
+                        await asyncio.sleep(10)
+                        
+                        gopro_ip = self.get_gopro_gateway_ip()
+                        self.log(f"正在對接相機 IP: {gopro_ip}")
+                        await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip, ssid)
+                    else:
+                        self.log(f"❌ {name} 的 Wi-Fi 連線指令失敗。")
+            except Exception as e:
+                self.log(f"❌ 處理 {name} 時發生錯誤: {e}")
         
+        self.log(f"----------------------------------------")
+        self.log("所有相機的 Wi-Fi 下載流程結束。")
         self.btn_download_wifi.setEnabled(True)
 
     async def connect_windows_wifi(self, ssid, password):
@@ -1190,7 +1373,7 @@ class GoProXsensApp(QWidget):
         except: pass
         return None
 
-    def _http_download_worker(self, gopro_ip):
+    def _http_download_worker(self, gopro_ip, ssid="GoPro"):
         session = requests.Session()
         session.trust_env = False
         def tlog(m): 
@@ -1245,10 +1428,17 @@ class GoProXsensApp(QWidget):
                             if time.time() - last_update > 2:
                                 tlog(f"已下載: {downloaded/1e6:.1f}MB / {total/1e6:.1f}MB")
                                 last_update = time.time()
-                out = Path.cwd() / "video_output"
-                out.mkdir(exist_ok=True)
-                shutil.move(str(save_path), str(out / file_name))
-                tlog(f"下載完成: {file_name}")
+                
+                # 依相機 SSID 命名子目錄，以防下載多台相機時覆蓋同名檔案
+                ssid_folder = ssid.replace(" ", "_").replace(":", "_")
+                out = Path.cwd() / "video_output" / ssid_folder
+                out.mkdir(parents=True, exist_ok=True)
+                
+                dest_file = out / file_name
+                if dest_file.exists():
+                    dest_file.unlink()
+                shutil.move(str(save_path), str(dest_file))
+                tlog(f"下載完成: {file_name} (已儲存至 {out})")
                 return True
         except Exception as e:
             tlog(f"HTTP 下載出錯: {e}")
@@ -1260,102 +1450,118 @@ class GoProXsensApp(QWidget):
         try {
             $shell = New-Object -ComObject Shell.Application
             $thisPC = $shell.Namespace(17)
-            $gopro = $thisPC.Items() | Where-Object { $_.Name -match "GOPRO_MATCH_TOKEN" }
-            if (!$gopro) { throw "找不到 GoPro 裝置，請確認 USB 已連線。" }
             
-            $storage = $gopro.GetFolder.Items() | Where-Object { $_.Name -match "GoPro MTP" -or $_.Name -match "Internal Storage" -or $_.Name -match "存儲" -or $_.Name -match "SD Card" }
-            if (!$storage) { throw "找不到存儲空間 (SD卡)。" }
+            # 尋找所有連線的 GoPro 裝置
+            $goproDevices = $thisPC.Items() | Where-Object { $_.Name -match "GOPRO_MATCH_TOKEN" }
+            if (!$goproDevices) { throw "找不到 GoPro 裝置，請確認 USB 已連線。" }
             
-            $dcim = $storage.GetFolder.Items() | Where-Object { $_.Name -eq "DCIM" }
-            if (!$dcim) { throw "找不到 DCIM 資料夾。" }
+            $downloadedFiles = @()
+            $errors = @()
             
-            $goproFolders = $dcim.GetFolder.Items() | Where-Object { $_.Name -match "GOPRO" }
-            
-            $allFiles = @()
-            foreach ($folderItem in $goproFolders) {
-                $folder = $folderItem.GetFolder
-                
-                # 尋找多個可能的時間屬性：4=日期, 5=拍攝日期, 10=建立日期, 12=修改日期
-                $dateIndices = @(4, 5, 10, 12)
-                
-                $files = $folderItem.GetFolder.Items() | Where-Object { $_.Name -like "*.MP4" }
-                foreach ($f in $files) {
-                    $bestDateStr = ""
-                    $sortKey = "00000000000000"
+            # 逐一處理每一台 connected 的 GoPro
+            foreach ($gopro in $goproDevices) {
+                try {
+                    $storage = $gopro.GetFolder.Items() | Where-Object { $_.Name -match "GoPro MTP" -or $_.Name -match "Internal Storage" -or $_.Name -match "存儲" -or $_.Name -match "SD Card" }
+                    if (!$storage) { continue }
                     
-                    # 嘗試從多個屬性中抓取最像日期的字串
-                    foreach ($idx in $dateIndices) {
-                        $tmp = $folder.GetDetailsOf($f, $idx).Replace("?", "").Trim()
-                        if ($tmp -match "\d{4}") { 
-                            $bestDateStr = $tmp
-                            break 
-                        }
-                    }
-
-                    if ($bestDateStr) {
-                        try {
-                            $dt = [datetime]$bestDateStr
-                            $sortKey = $dt.ToString("yyyyMMddHHmmss")
-                        } catch {
-                            $matches = [regex]::Matches($bestDateStr, "\d+")
-                            if ($matches.Count -ge 5) {
-                                $year  = $matches[0].Value
-                                $month = $matches[1].Value.PadLeft(2, '0')
-                                $day   = $matches[2].Value.PadLeft(2, '0')
-                                $hour  = $matches[3].Value.PadLeft(2, '0')
-                                $min   = $matches[4].Value.PadLeft(2, '0')
-                                $sec   = if ($matches.Count -ge 6) { $matches[5].Value.PadLeft(2, '0') } else { "00" }
-                                if ($bestDateStr -match "下午|PM") {
-                                    $h_int = [int]$hour
-                                    if ($h_int -lt 12) { $hour = ($h_int + 12).ToString().PadLeft(2, '0') }
-                                } elseif ($bestDateStr -match "上午|AM") {
-                                    if ($hour -eq "12") { $hour = "00" }
+                    $dcim = $storage.GetFolder.Items() | Where-Object { $_.Name -eq "DCIM" }
+                    if (!$dcim) { continue }
+                    
+                    $goproFolders = $dcim.GetFolder.Items() | Where-Object { $_.Name -match "GOPRO" }
+                    
+                    $cameraFiles = @()
+                    foreach ($folderItem in $goproFolders) {
+                        $folder = $folderItem.GetFolder
+                        $dateIndices = @(4, 5, 10, 12)
+                        
+                        $files = $folderItem.GetFolder.Items() | Where-Object { $_.Name -like "*.MP4" }
+                        foreach ($f in $files) {
+                            $bestDateStr = ""
+                            $sortKey = "00000000000000"
+                            
+                            foreach ($idx in $dateIndices) {
+                                $tmp = $folder.GetDetailsOf($f, $idx).Replace("?", "").Trim()
+                                if ($tmp -match "\d{4}") { 
+                                    $bestDateStr = $tmp
+                                    break 
                                 }
-                                $sortKey = "$year$month$day$hour$min$sec"
+                            }
+                            
+                            if ($bestDateStr) {
+                                try {
+                                    $dt = [datetime]$bestDateStr
+                                    $sortKey = $dt.ToString("yyyyMMddHHmmss")
+                                } catch {
+                                    $matches = [regex]::Matches($bestDateStr, "\d+")
+                                    if ($matches.Count -ge 5) {
+                                        $year  = $matches[0].Value
+                                        $month = $matches[1].Value.PadLeft(2, '0')
+                                        $day   = $matches[2].Value.PadLeft(2, '0')
+                                        $hour  = $matches[3].Value.PadLeft(2, '0')
+                                        $min   = $matches[4].Value.PadLeft(2, '0')
+                                        $sec   = if ($matches.Count -ge 6) { $matches[5].Value.PadLeft(2, '0') } else { "00" }
+                                        if ($bestDateStr -match "下午|PM") {
+                                            $h_int = [int]$hour
+                                            if ($h_int -lt 12) { $hour = ($h_int + 12).ToString().PadLeft(2, '0') }
+                                        } elseif ($bestDateStr -match "上午|AM") {
+                                            if ($hour -eq "12") { $hour = "00" }
+                                        }
+                                        $sortKey = "$year$month$day$hour$min$sec"
+                                    }
+                                }
+                            }
+                            
+                            $nameKey = $f.Name
+                            $cameraFiles += [PSCustomObject]@{
+                                Item    = $f
+                                SortKey = $sortKey
+                                NameKey = $nameKey
+                                RawDate = $bestDateStr
+                                Name    = $f.Name
                             }
                         }
                     }
                     
-                    # 增加檔名權重：GX010005 一定比 GX010004 新 (在同天內)
-                    $nameKey = $f.Name
+                    if ($cameraFiles.Count -eq 0) { continue }
                     
-                    $allFiles += [PSCustomObject]@{
-                        Item    = $f
-                        SortKey = $sortKey
-                        NameKey = $nameKey
-                        RawDate = $bestDateStr
-                        Name    = $f.Name
+                    # 排序並找出此台相機的最新檔案
+                    $latest = $cameraFiles | Sort-Object SortKey, NameKey -Descending | Select-Object -First 1
+                    $latestFile = $latest.Item
+                    
+                    # 依相機裝置名稱建立子目錄，避免檔名衝突
+                    $folderName = $gopro.Name -replace '[\\\\/:*?"<>|]', '_'
+                    $destPath = Join-Path (Get-Location) "video_output\\$folderName"
+                    if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Path $destPath | Out-Null }
+                    
+                    $destFolder = $shell.Namespace($destPath)
+                    $destFolder.CopyHere($latestFile, 16)
+                    
+                    # 等待檔案拷貝完成
+                    $targetFile = Join-Path $destPath $latest.Name
+                    $timeout = 0
+                    while (!(Test-Path $targetFile) -and $timeout -lt 60) { 
+                        Start-Sleep -Seconds 1 
+                        $timeout++
                     }
+                    
+                    if (Test-Path $targetFile) {
+                        $downloadedFiles += "$folderName\\$($latest.Name)"
+                    } else {
+                        $errors += "複製 $($latest.Name) 逾時"
+                    }
+                } catch {
+                    $errors += "處理相機 $($gopro.Name) 時出錯: $($_.Exception.Message)"
                 }
             }
             
-            if ($allFiles.Count -eq 0) { throw "在 GoPro 中找不到任何 MP4 影片。" }
-            
-            # 雙重排序：先比時間 (SortKey)，時間一樣比檔名 (NameKey)
-            $latest = $allFiles | Sort-Object SortKey, NameKey -Descending | Select-Object -First 1
-            $latestFile = $latest.Item
-            
-            Write-Host "DEBUG: 最新檔案判定為 $($latest.Name) [日期: $($latest.RawDate)]"
-
-            
-            $destPath = Join-Path (Get-Location) "video_output"
-            if (!(Test-Path $destPath)) { New-Item -ItemType Directory -Path $destPath }
-            
-            $destFolder = $shell.Namespace($destPath)
-            $destFolder.CopyHere($latestFile, 16)
-            
-            # 等待檔案出現在目標路徑
-            $targetFile = Join-Path $destPath $latest.Name
-            $timeout = 0
-            while (!(Test-Path $targetFile) -and $timeout -lt 60) { 
-                Start-Sleep -Seconds 1 
-                $timeout++
+            if ($downloadedFiles.Count -gt 0) {
+                Write-Host "SUCCESS:$($downloadedFiles -join ',')"
             }
-            
-            if (Test-Path $targetFile) {
-                Write-Host "SUCCESS:$($latest.Name)"
-            } else {
-                throw "複製逾時，檔案未出現在目標資料夾。"
+            if ($errors.Count -gt 0) {
+                Write-Host "WARNINGS:$($errors -join ';')"
+            }
+            if ($downloadedFiles.Count -eq 0 -and $errors.Count -eq 0) {
+                throw "在 GoPro 中找不到任何儲存媒體或 MP4 影片。"
             }
         } catch {
             Write-Host "ERROR:$($_.Exception.Message)"
