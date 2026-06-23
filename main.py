@@ -21,12 +21,8 @@ from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QMetaObject, Q_ARG, p
 from qasync import QEventLoop, asyncSlot
 from bleak import BleakClient, BleakScanner
 
-# Xsens SDK
-try:
-    import xsensdeviceapi as xda
-except ImportError:
-    xda = None
-    print("Warning: xsensdeviceapi not found.")
+from xsens_manager import XsensManager
+from gopro_preview import GoProPreviewWindow
 
 # ========================================================
 # 設定檔管理
@@ -147,296 +143,6 @@ GOPRO_SETTINGS_CONSTRAINTS = {
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ---------- Xsens Callbacks ----------
-
-if xda:
-    class WirelessMasterCallback(xda.XsCallback):
-        def __init__(self):
-            super().__init__()
-            self.connected_mtws = set()
-            self.lock = Lock()
-
-        def onConnectivityChanged(self, dev, new_state):
-            with self.lock:
-                if new_state == xda.XCS_Wireless:
-                    self.connected_mtws.add(dev)
-                elif new_state in (xda.XCS_Disconnected, xda.XCS_Rejected):
-                    self.connected_mtws.discard(dev)
-
-        def get_wireless_mtws(self):
-            with self.lock:
-                return list(self.connected_mtws)
-
-    class MtwCallback(xda.XsCallback):
-        def __init__(self, mtw_index, device):
-            super().__init__()
-            self.index = mtw_index
-            self.device = device
-            self.packets = []
-            self.lock = Lock()
-
-        def onLiveDataAvailable(self, dev, packet):
-            with self.lock:
-                self.packets.append(xda.XsDataPacket(packet))
-
-        def pop_oldest(self):
-            with self.lock:
-                return self.packets.pop(0) if self.packets else None
-
-        def clear_buffer(self):
-            with self.lock:
-                self.packets.clear()
-else:
-    class WirelessMasterCallback: pass
-    class MtwCallback: pass
-
-# ---------- Xsens Manager (Threaded) ----------
-
-class XsensManager(QThread):
-    log_signal = pyqtSignal(str)
-    status_signal = pyqtSignal(str)
-    connection_finished = pyqtSignal(bool)
-    discovery_finished = pyqtSignal(int)
-    
-    def __init__(self):
-        super().__init__()
-        self.control = None
-        self.master = None
-        self.master_cb = None
-        self.mtw_callbacks = []
-        self.is_logging = False
-        self.should_stop = False
-        self._is_connected = False
-        self.update_rate = 120 # 依照診斷工具改為 120Hz
-        self.radio_channel = 18
-        self.mode = "connect"
-
-    def run(self):
-        if not xda:
-            self.log_signal.emit("Xsens SDK 未安裝。")
-            return
-        if self.mode == "discover":
-            self._run_discovery()
-        else:
-            self._run_connect()
-
-    def _run_discovery(self):
-        try:
-            self.log_signal.emit("開始掃描頻道 (11-25)，請確保感測器已開機...")
-            self.control = xda.XsControl_construct()
-            master_port = xda.XsScanner_scanPort("COM3", xda.XBR_Invalid)
-            if master_port.empty():
-                ports = xda.XsScanner_scanPorts()
-                for p in ports:
-                    if p.deviceId().isWirelessMaster() or p.deviceId().isAwindaXStation():
-                        master_port = p
-                        break
-            if master_port.empty():
-                self.log_signal.emit("找不到接收器。")
-                self.discovery_finished.emit(-1)
-                return
-            self.control.openPort(master_port.portName(), master_port.baudrate())
-            master = self.control.device(master_port.deviceId())
-            master.gotoConfig()
-            cb = WirelessMasterCallback()
-            master.addCallbackHandler(cb)
-            found_channel = -1
-            for channel in range(11, 26):
-                self.status_signal.emit(f"掃描中: CH {channel}")
-                master.disableRadio()
-                master.enableRadio(channel)
-                for _ in range(15):
-                    time.sleep(0.1)
-                    if len(cb.get_wireless_mtws()) > 0:
-                        found_channel = channel
-                        break
-                if found_channel != -1: break
-            self.control.close()
-            if found_channel != -1:
-                self.log_signal.emit(f"在頻道 {found_channel} 找到感測器！")
-                self.radio_channel = found_channel
-                self.discovery_finished.emit(found_channel)
-            else:
-                self.log_signal.emit("掃描結束，未找到感測器。")
-                self.discovery_finished.emit(-1)
-        except Exception as e:
-            self.log_signal.emit(f"掃描出錯: {e}")
-            self.discovery_finished.emit(-1)
-
-    def _run_connect(self):
-        try:
-            self.log_signal.emit(f"正在連線頻道 {self.radio_channel}...")
-            self.control = xda.XsControl_construct()
-            master_port = xda.XsScanner_scanPort("COM3", xda.XBR_Invalid)
-            is_master = not master_port.empty() and (master_port.deviceId().isWirelessMaster() or master_port.deviceId().isAwindaXStation())
-            if not is_master:
-                ports = xda.XsScanner_scanPorts()
-                for p in ports:
-                    if p.deviceId().isWirelessMaster() or p.deviceId().isAwindaXStation():
-                        master_port = p
-                        is_master = True
-                        break
-            if not is_master:
-                self.log_signal.emit("找不到接收器。")
-                self.connection_finished.emit(False)
-                return
-            if not self.control.openPort(master_port.portName(), master_port.baudrate()):
-                self.log_signal.emit("無法開啟連接埠。")
-                self.connection_finished.emit(False)
-                return
-            self.master = self.control.device(master_port.deviceId())
-            self.master.gotoConfig()
-            self.master_cb = WirelessMasterCallback()
-            self.master.addCallbackHandler(self.master_cb)
-            supported = self.master.supportedUpdateRates()
-            rate = self.update_rate if self.update_rate in [int(r) for r in supported] else int(supported[-1])
-            self.master.setUpdateRate(rate)
-            if self.master.isRadioEnabled():
-                self.master.disableRadio()
-            self.master.enableRadio(self.radio_channel)
-            timeout = 0
-            while len(self.master_cb.get_wireless_mtws()) == 0 and timeout < 100:
-                time.sleep(0.1)
-                timeout += 1
-                if timeout % 10 == 0:
-                    self.status_signal.emit(f"等待感測器連線... ({timeout/10:.1f}s)")
-            if len(self.master_cb.get_wireless_mtws()) == 0:
-                self.log_signal.emit("感測器連線逾時。")
-                self.connection_finished.emit(False)
-                return
-            mtws = self.master_cb.get_wireless_mtws()
-            self.mtw_callbacks = []
-            for i, mtw in enumerate(mtws):
-                cb = MtwCallback(i, mtw)
-                mtw.addCallbackHandler(cb)
-                self.mtw_callbacks.append(cb)
-            self.master.gotoMeasurement()
-            self._is_connected = True
-            self.connection_finished.emit(True)
-            self.status_signal.emit(f"Xsens: CH{self.radio_channel} 已連線")
-        except Exception as e:
-            self.log_signal.emit(f"Xsens 錯誤: {str(e)}")
-            self.connection_finished.emit(False)
-
-    def reset_orientation(self):
-        if not self._is_connected: return False
-        success = True
-        for cb in self.mtw_callbacks:
-            if not cb.device.resetOrientation(xda.XRM_Alignment):
-                success = False
-        return success
-
-    def start_logging(self):
-        if not self._is_connected:
-            self.log_signal.emit("Xsens 未連線，無法記錄。")
-            return
-        
-        # 強制確保舊的執行緒已經結束
-        if self.is_logging or (hasattr(self, 'logging_thread') and self.logging_thread.is_alive()):
-            self.log_signal.emit("正在清理上一次錄製的資源，請稍候...")
-            self.should_stop = True
-            if hasattr(self, 'logging_thread'):
-                self.logging_thread.join(timeout=2.0)
-        
-        # 徹底清空所有感測器的緩存，確保從這一刻開始抓新資料
-        for cb in self.mtw_callbacks:
-            cb.clear_buffer()
-
-        self.is_logging = True
-        self.should_stop = False
-        import threading
-        self.logging_thread = threading.Thread(target=self._logging_loop, daemon=True)
-        self.logging_thread.start()
-
-    def _logging_loop(self):
-        writers = {}
-        files = {}
-        start_counters = {}
-        packet_counts = {}
-        
-        # 進入迴圈前再次清空，確保絕對乾淨
-        for cb in self.mtw_callbacks:
-            cb.clear_buffer()
-
-        try:
-            output_dir = Path.cwd() / "xsens_output"
-            output_dir.mkdir(exist_ok=True)
-            
-            # 格式化日期時間：例如 20260525_141858
-            time_str = time.strftime("%Y%m%d_%H%M%S")
-            
-            for cb in self.mtw_callbacks:
-                fname = f"mtw_{cb.device.deviceId().toXsString()}_{time_str}.csv"
-                full_path = output_dir / fname
-                f = open(full_path, "w", newline="")
-                w = csv.writer(f)
-                w.writerow(["packet_counter", "timestamp_s", "q_w", "q_x", "q_y", "q_z",
-                            "acc_x", "acc_y", "acc_z", "gyr_x", "gyr_y", "gyr_z",
-                            "mag_x", "mag_y", "mag_z"])
-                writers[cb.index] = w
-                files[cb.index] = f
-                packet_counts[cb.index] = 0
-            
-            self.log_signal.emit(f"[Xsens] 開始同步記錄 (共 {len(self.mtw_callbacks)} 個感測器)...")
-            
-            last_progress_update = time.time()
-            while not self.should_stop:
-                has_data = False
-                for cb in self.mtw_callbacks:
-                    packet = cb.pop_oldest()
-                    if packet is None: continue
-                    has_data = True
-                    try:
-                        current_counter = packet.packetCounter()
-                        if cb.index not in start_counters:
-                            start_counters[cb.index] = current_counter
-                        timestamp_s = (current_counter - start_counters[cb.index]) / float(self.update_rate)
-                        
-                        q   = packet.orientationQuaternion()
-                        acc = packet.calibratedAcceleration() 
-                        gyr = packet.calibratedGyroscopeData()
-                        mag = packet.calibratedMagneticField()
-
-                        writers[cb.index].writerow([
-                            current_counter, f"{timestamp_s:.3f}",
-                            q[0], q[1], q[2], q[3],
-                            acc[0], acc[1], acc[2],
-                            gyr[0], gyr[1], gyr[2],
-                            mag[0], mag[1], mag[2],
-                        ])
-                        packet_counts[cb.index] += 1
-                    except: continue
-                
-                if time.time() - last_progress_update > 5:
-                    status_msg = "記錄中: " + ", ".join([f"S{idx}: {count} 筆" for idx, count in packet_counts.items()])
-                    self.log_signal.emit(status_msg)
-                    last_progress_update = time.time()
-
-                if not has_data:
-                    time.sleep(0.001)
-        except Exception as e:
-            self.log_signal.emit(f"Xsens 記錄錯誤: {e}")
-        finally:
-            for f in files.values(): 
-                try: f.close()
-                except: pass
-            self.is_logging = False
-            self.log_signal.emit(f"Xsens 資料儲存完畢。")
-
-    def stop_logging(self):
-        self.should_stop = True
-        # 主動等待執行緒結束，確保呼叫端拿回主導權時，檔案已經關閉
-        if hasattr(self, 'logging_thread'):
-            self.logging_thread.join(timeout=1.0)
-
-    def cleanup(self):
-        self.stop_logging()
-        if self.master:
-            self.master.gotoConfig()
-            self.master.disableRadio()
-        if self.control:
-            self.control.close()
 
 # ---------- Main App ----------
 
@@ -705,6 +411,21 @@ class GoProXsensApp(QWidget):
         hbl_gopro.addWidget(self.btn_gopro_reset, 1)
         gl.addLayout(hbl_gopro)
 
+        hbl_power = QHBoxLayout()
+        self.btn_gopro_sleep = QPushButton("一鍵相機休眠 (保留藍牙)")
+        self.btn_gopro_sleep.setFixedHeight(40)
+        self.btn_gopro_sleep.setEnabled(False)
+        self.btn_gopro_sleep.clicked.connect(self.sleep_all_gopro)
+        
+        self.btn_gopro_poweroff = QPushButton("一鍵相機關機 (徹底關閉)")
+        self.btn_gopro_poweroff.setFixedHeight(40)
+        self.btn_gopro_poweroff.setEnabled(False)
+        self.btn_gopro_poweroff.clicked.connect(self.poweroff_all_gopro)
+        
+        hbl_power.addWidget(self.btn_gopro_sleep)
+        hbl_power.addWidget(self.btn_gopro_poweroff)
+        gl.addLayout(hbl_power)
+
         # --- 同步設定區域 ---
         settings_layout = QHBoxLayout()
         
@@ -745,8 +466,13 @@ class GoProXsensApp(QWidget):
         self.btn_fetch_ap.setEnabled(False)
         self.btn_fetch_ap.clicked.connect(self.fetch_gopro_ap_info)
         
+        self.btn_preview_gopro = QPushButton("即時畫面預覽")
+        self.btn_preview_gopro.setEnabled(False)
+        self.btn_preview_gopro.clicked.connect(self.preview_gopro_feed)
+        
         ap_selector_layout.addWidget(self.combo_ap_target, 2)
         ap_selector_layout.addWidget(self.btn_fetch_ap, 1)
+        ap_selector_layout.addWidget(self.btn_preview_gopro, 1)
         gl.addLayout(ap_selector_layout)
 
         ap_box = QWidget()
@@ -799,6 +525,13 @@ class GoProXsensApp(QWidget):
         dl_gb = QGroupBox("📂 影片下載管理")
         dl = QVBoxLayout()
         dl.setSpacing(12)
+        
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("下載對象:"))
+        self.combo_download_target = QComboBox()
+        self.combo_download_target.addItem("全部相機")
+        target_layout.addWidget(self.combo_download_target, 1)
+        dl.addLayout(target_layout)
         
         self.btn_download_wifi = QPushButton("Wi-Fi 下載")
         self.btn_download_wifi.setObjectName("btn_download_wifi")
@@ -856,8 +589,13 @@ class GoProXsensApp(QWidget):
             lines = result.stdout.split('\n')
             is_wifi_section = False
             for line in lines:
-                if "Wireless LAN adapter Wi-Fi" in line or "無線區域網路介面卡 Wi-Fi" in line:
-                    is_wifi_section = True
+                # 偵測區段區分 (無縮排者為新區段開頭)
+                if line and not line.startswith(" "):
+                    if "Wireless LAN adapter" in line or "無線區域網路介面卡" in line:
+                        is_wifi_section = True
+                    else:
+                        is_wifi_section = False
+                
                 if is_wifi_section and ("Default Gateway" in line or "預設閘道" in line):
                     parts = line.split(':')
                     if len(parts) > 1:
@@ -894,7 +632,13 @@ class GoProXsensApp(QWidget):
     async def connect_gopro(self):
         self.log("正在搜尋附近的 GoPro...")
         self.btn_gopro_connect.setEnabled(False)
+        self.btn_gopro_sleep.setEnabled(False)
+        self.btn_gopro_poweroff.setEnabled(False)
+        self.btn_download_wifi.setEnabled(False)
+        self.btn_download_usb.setEnabled(False)
         self.combo_ap_target.clear() # 清空舊選單
+        self.combo_download_target.clear()
+        self.combo_download_target.addItem("全部相機")
         try:
             found_gopros = []
             for attempt in range(2):
@@ -920,13 +664,19 @@ class GoProXsensApp(QWidget):
                     await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
                     self.gopro_clients.append({'client': client, 'name': gopro.name})
                     self.combo_ap_target.addItem(gopro.name) # 加到下拉選單
+                    self.combo_download_target.addItem(gopro.name)
                     self.log(f"✅ {gopro.name} 連線成功！")
                 except Exception as e:
                     self.log(f"❌ {gopro.name} 連線失敗: {e}")
             
             if self.gopro_clients:
                 self.btn_fetch_ap.setEnabled(True)
+                self.btn_preview_gopro.setEnabled(True)
                 self.btn_apply_settings.setEnabled(True)
+                self.btn_gopro_sleep.setEnabled(True)
+                self.btn_gopro_poweroff.setEnabled(True)
+                self.btn_download_wifi.setEnabled(True)
+                self.btn_download_usb.setEnabled(True)
                 self.check_ready_state()
             else:
                 self.log("所有 GoPro 連線皆失敗。")
@@ -1069,6 +819,66 @@ class GoProXsensApp(QWidget):
         except Exception as e:
             self.log(f"讀取熱點資訊失敗: {e}")
 
+    def get_current_wifi_ssid(self):
+        try:
+            out = subprocess.run("netsh wlan show interfaces", shell=True, capture_output=True, text=True, encoding="cp950")
+            for line in out.stdout.splitlines():
+                if "SSID" in line and "BSSID" not in line:
+                    parts = line.split(":", 1)
+                    if len(parts) > 1:
+                        return parts[1].strip()
+        except:
+            pass
+        return None
+
+    @asyncSlot()
+    async def preview_gopro_feed(self):
+        if hasattr(self, 'preview_windows') and len(self.preview_windows) > 0:
+            self.log("⚠️ 警告: 已有開啟中的預覽視窗。")
+            return
+
+        self.btn_preview_gopro.setEnabled(False) # 立即禁用按鈕，防止重複點擊
+
+        selected_name = self.combo_ap_target.currentText()
+        if not selected_name:
+            self.log("請先從下拉選單選擇一台相機")
+            self.btn_preview_gopro.setEnabled(True)
+            return
+            
+        target_gopro = next((g for g in self.gopro_clients if g['name'] == selected_name), None)
+        if not target_gopro or not target_gopro['client'].is_connected:
+            self.log(f"錯誤: {selected_name} 已斷線")
+            self.btn_preview_gopro.setEnabled(True)
+            return
+            
+        client = target_gopro['client']
+        self.log(f"正在讀取 {selected_name} 的 Wi-Fi 資訊以開啟預覽...")
+        
+        original_ssid = self.get_current_wifi_ssid()
+        if original_ssid:
+            self.log(f"已記錄目前連線的 Wi-Fi: {original_ssid}")
+            
+        try:
+            ssid_bytes = await client.read_gatt_char(WIFI_SSID_UUID)
+            pass_bytes = await client.read_gatt_char(WIFI_PASS_UUID)
+            ssid = ssid_bytes.decode('utf-8').strip('\x00')
+            password = pass_bytes.decode('utf-8').strip('\x00')
+            
+            # 喚醒相機 Wi-Fi AP
+            self.log(f"正在透過 BLE 喚醒 {selected_name} 的 Wi-Fi AP...")
+            await client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
+            await asyncio.sleep(2.0)
+            
+            if not hasattr(self, 'preview_windows'):
+                self.preview_windows = []
+                
+            win = GoProPreviewWindow(ssid, password, original_ssid, self)
+            self.preview_windows.append(win)
+            win.show()
+        except Exception as e:
+            self.log(f"開啟預覽失敗: {e}")
+            self.btn_preview_gopro.setEnabled(True)
+
 
     @asyncSlot()
     async def provision_gopro_wifi(self):
@@ -1190,7 +1000,16 @@ class GoProXsensApp(QWidget):
             self.btn_download_wifi.setEnabled(True)
             return
 
-        self.log(f"啟動 {len(connected_gopros)} 台 GoPro Wi-Fi 循序切換與下載流程...")
+        target = self.combo_download_target.currentText()
+        if target and target != "全部相機":
+            connected_gopros = [c for c in connected_gopros if c['name'] == target]
+            if not connected_gopros:
+                self.log(f"❌ 錯誤: 指定的相機 {target} 目前未連線。")
+                self.btn_download_wifi.setEnabled(True)
+                return
+            self.log(f"啟動指定相機 {target} Wi-Fi 下載流程...")
+        else:
+            self.log(f"啟動 {len(connected_gopros)} 台 GoPro Wi-Fi 循序切換與下載流程...")
         
         for idx, gopro in enumerate(connected_gopros):
             name = gopro['name']
@@ -1203,9 +1022,19 @@ class GoProXsensApp(QWidget):
                 self.log(f"正在從 {name} 讀取熱點資訊...")
                 ssid_bytes = await client.read_gatt_char(WIFI_SSID_UUID)
                 pass_bytes = await client.read_gatt_char(WIFI_PASS_UUID)
-                ssid = ssid_bytes.decode('utf-8').strip('\x00')
-                password = pass_bytes.decode('utf-8').strip('\x00')
+                ssid = ssid_bytes.decode('utf-8').strip('\x00').strip()
+                password = pass_bytes.decode('utf-8').strip('\x00').strip()
                 self.log(f"取得熱點 SSID: {ssid}")
+                
+                # 喚醒相機 Wi-Fi AP，並確保進入第三方模式與 API 控制開啟
+                self.log(f"正在透過 BLE 喚醒 {name} 的 Wi-Fi AP...")
+                try:
+                    await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_THIRD_PARTY_MODE, response=True)
+                    await client.write_gatt_char(GOPRO_COMMAND_UUID, SET_API_CONTROL_ON, response=True)
+                except Exception as e:
+                    self.log(f"⚠️ 發送 API 控制指令提示: {e}")
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, WAKE_WIFI, response=True)
+                await asyncio.sleep(2.0)
                 
                 # 更新 UI 的欄位以供參考
                 self.input_ap_ssid.setText(ssid)
@@ -1223,7 +1052,8 @@ class GoProXsensApp(QWidget):
                 except:
                     pass
                 
-                if is_connected_to_correct_ap and self._ping_gopro(gopro_ip):
+                wifi_ip, _ = self.get_wifi_ip_details()
+                if is_connected_to_correct_ap and self._ping_gopro(gopro_ip, wifi_ip):
                     self.log(f"已處於該相機的 Wi-Fi 熱點 ({ssid})，直接下載最新影片...")
                     await asyncio.get_event_loop().run_in_executor(None, self._http_download_worker, gopro_ip, ssid)
                 else:
@@ -1278,21 +1108,60 @@ class GoProXsensApp(QWidget):
             # 1. 斷開目前連線 (確保它會切換)
             subprocess.run('netsh wlan disconnect', shell=True, capture_output=True)
             
-            # 2. 新增設定檔
+            # 2. 新增設定檔 (直接覆蓋，避免刪除設定檔導致 Windows 遺失 BSSID 快取資訊)
             add_result = subprocess.run(f'netsh wlan add profile filename="{xml_path}"', shell=True, capture_output=True, text=True, encoding='cp950')
             if add_result.returncode != 0:
                 self.log(f"新增設定檔失敗: {add_result.stderr or add_result.stdout}")
 
             await asyncio.sleep(1) 
 
-            # 3. 執行連線
-            connect_result = subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True, text=True, encoding='cp950')
-            if connect_result.returncode != 0:
-                self.log(f"連線指令失敗: {connect_result.stderr or connect_result.stdout}")
-                success = False
-            else:
-                self.log("成功送出連線指令！(請確認電腦右下角是否連上)")
-                success = True
+            # 3. 執行連線 (進入循環並定期重送連線命令，以防發送當下相機 Wi-Fi 還沒廣播就緒)
+            self.log("正在嘗試連線到相機 Wi-Fi...")
+            success = False
+            for attempt in range(15):
+                # 每 4 秒重新發送一次連線指令，確保相機啟動廣播後立刻被連線要求補捉
+                if attempt % 4 == 0:
+                    subprocess.run(f'netsh wlan connect name="{ssid}"', shell=True, capture_output=True)
+                
+                await asyncio.sleep(1.0)
+                check_result = subprocess.run("netsh wlan show interfaces", shell=True, capture_output=True, text=True, encoding='cp950')
+                
+                # 解析目前連線的 SSID 與連線狀態
+                current_ssid = ""
+                current_state = ""
+                for line in check_result.stdout.split('\n'):
+                    l = line.strip()
+                    if l.startswith("SSID"):
+                        parts = l.split(':')
+                        if len(parts) > 1:
+                            current_ssid = parts[1].strip()
+                    if l.startswith("狀態") or l.startswith("State"):
+                        parts = l.split(':')
+                        if len(parts) > 1:
+                            current_state = parts[1].strip()
+                            
+                # 判斷是否為目標相機 SSID 且狀態為「連線」、「已連線」或「connected」
+                if current_ssid == ssid and (current_state == "連線" or current_state == "已連線" or current_state.lower() == "connected"):
+                    self.log(f"✅ Wi-Fi 已成功連接到相機熱點: {ssid}！")
+                    success = True
+                    break
+                    
+                self.log(f"⏳ 等待 Wi-Fi 聯結與握手... ({attempt+1}/15)")
+                
+            if not success:
+                # 擷取目前實際連接的 SSID 以供診斷
+                current_ssid = "無連線"
+                check_result = subprocess.run("netsh wlan show interfaces", shell=True, capture_output=True, text=True, encoding='cp950')
+                for line in check_result.stdout.split('\n'):
+                    l = line.strip()
+                    if l.startswith("SSID"):
+                        parts = l.split(':')
+                        if len(parts) > 1:
+                            current_ssid = parts[1].strip()
+                            break
+                self.log(f"❌ Wi-Fi 連線失敗。Windows 無法在 15 秒內連接上 {ssid}。")
+                self.log(f"ℹ️ 診斷：電腦目前實際連接的 Wi-Fi 是：「{current_ssid}」")
+                self.log(f"👉 請檢查您的 GoPro 螢幕設定：偏好設定 -> 連線 -> Wi-Fi 頻帶，將其從「5GHz」切換為「2.4GHz」後重試！")
 
             if xml_path.exists():
                 xml_path.unlink()
@@ -1304,9 +1173,19 @@ class GoProXsensApp(QWidget):
     @asyncSlot()
     async def download_via_usb(self):
         self.btn_download_usb.setEnabled(False)
-        self.log("啟動 USB 下載流程...")
         
+        target = self.combo_download_target.currentText()
         connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        
+        if target and target != "全部相機":
+            connected_clients = [c for c in connected_clients if c['name'] == target]
+            if not connected_clients:
+                self.log(f"❌ 錯誤: 指定的相機 {target} 目前未連線。")
+                self.btn_download_usb.setEnabled(True)
+                return
+            self.log(f"啟動指定相機 {target} USB 下載流程...")
+        else:
+            self.log("啟動所有相機 USB 下載流程...")
         
         try:
             if connected_clients:
@@ -1323,7 +1202,7 @@ class GoProXsensApp(QWidget):
             
             # 核心修復：使用 executor 在背景執行，避免阻塞 Event Loop 導致藍牙斷線！
             self.log("正在複製檔案，請勿拔除傳輸線...")
-            success, msg = await asyncio.get_event_loop().run_in_executor(None, self._usb_download_logic)
+            success, msg = await asyncio.get_event_loop().run_in_executor(None, self._usb_download_logic, target)
             
             if success:
                 self.log(msg)
@@ -1354,10 +1233,47 @@ class GoProXsensApp(QWidget):
             
         self.btn_download_usb.setEnabled(True)
 
-    def _ping_gopro(self, ip):
+    def _ping_gopro(self, ip, source_ip=None):
+        # 嘗試連接 8080 埠或 80 埠，只要任一個通即代表網路層已連通
+        for port in [8080, 80]:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.5)
+                if source_ip and "." in source_ip and not source_ip.startswith("169.254"):
+                    s.bind((source_ip, 0))
+                s.connect((ip, port))
+                s.close()
+                return True
+            except: 
+                pass
+        return False
+
+    def get_wifi_ip_details(self):
         try:
-            with socket.create_connection((ip, 8080), timeout=0.5): return True
-        except: return False
+            result = subprocess.run('ipconfig', shell=True, capture_output=True, text=True, encoding='cp950')
+            lines = result.stdout.split('\n')
+            is_wifi_section = False
+            ipv4 = "無 IP"
+            gateway = "無閘道"
+            for line in lines:
+                if line and not line.startswith(" "):
+                    if "Wireless LAN adapter" in line or "無線區域網路介面卡" in line:
+                        is_wifi_section = True
+                    else:
+                        is_wifi_section = False
+                if is_wifi_section:
+                    l = line.strip()
+                    if "IPv4" in l:
+                        parts = l.split(':')
+                        if len(parts) > 1:
+                            ipv4 = parts[1].strip()
+                    if "Default Gateway" in l or "預設閘道" in l:
+                        parts = l.split(':')
+                        if len(parts) > 1:
+                            gateway = parts[1].strip()
+            return ipv4, gateway
+        except:
+            return "錯誤", "錯誤"
 
     def _scan_local_network_for_gopro(self):
         try:
@@ -1367,7 +1283,7 @@ class GoProXsensApp(QWidget):
                 prefix = ".".join(lip.split(".")[:-1])
                 ips = [f"{prefix}.{i}" for i in range(1, 255) if f"{prefix}.{i}" != lip]
                 with ThreadPoolExecutor(max_workers=100) as executor:
-                    futures = {executor.submit(self._ping_gopro, ip): ip for ip in ips}
+                    futures = {executor.submit(self._ping_gopro, ip, lip): ip for ip in ips}
                     for f in as_completed(futures):
                         if f.result(): return futures[f]
         except: pass
@@ -1376,13 +1292,68 @@ class GoProXsensApp(QWidget):
     def _http_download_worker(self, gopro_ip, ssid="GoPro"):
         session = requests.Session()
         session.trust_env = False
+        
         def tlog(m): 
             self.append_log_signal.emit(m)
             logger.info(f"[Download] {m}")
 
         try:
             tlog("正在對接相機服務...")
-            for _ in range(3): session.get(f"http://{gopro_ip}/gopro/camera/keep_alive", timeout=1)
+            
+            # 💡 改善：等待 Windows 網路介面卡取得 IP 並且連通 GoPro 服務端 (最多等待 15 秒)
+            connected = False
+            for attempt in range(15):
+                # 重新偵測最新網關 IP，因為剛連上時可能還沒取得，會退化回 10.5.5.9
+                current_ip = self.get_gopro_gateway_ip()
+                wifi_ip, wifi_gw = self.get_wifi_ip_details()
+                
+                # 只有當 wifi_ip 是有效且非 APIPA 的時候才傳入進行綁定
+                use_source_ip = wifi_ip if (wifi_ip and "." in wifi_ip and not wifi_ip.startswith("169.254") and wifi_ip != "無 IP") else None
+                is_ping_ok = self._ping_gopro(current_ip, use_source_ip)
+                tlog(f"⏳ 等待 Windows 分配 IP... ({attempt+1}/15) | 本地 Wi-Fi IP: {wifi_ip}, 閘道: {wifi_gw}, 目標 IP: {current_ip}, 狀態: {'已連通' if is_ping_ok else '等待中'}")
+                
+                if is_ping_ok:
+                    gopro_ip = current_ip
+                    connected = True
+                    tlog(f"✅ 網路連線已建立！相機 IP: {gopro_ip}")
+                    break
+                time.sleep(1.0)
+                
+            if not connected:
+                tlog("❌ 無法建立網路連線。請確認電腦已連上 GoPro 的 Wi-Fi，且防火牆未阻擋。")
+                return False
+
+            # 連通後，重新獲取本機最新且已確認連通的 Wi-Fi IP 並綁定 HTTP session
+            wifi_ip, _ = self.get_wifi_ip_details()
+            if wifi_ip and "." in wifi_ip and not wifi_ip.startswith("169.254") and wifi_ip != "無 IP":
+                try:
+                    class SourceIPAdapter(requests.adapters.HTTPAdapter):
+                        def __init__(self, source_ip, **kwargs):
+                            self.source_ip = source_ip
+                            super().__init__(**kwargs)
+                        def init_poolmanager(self, connections, maxsize, block=False):
+                            from urllib3.poolmanager import PoolManager
+                            self.poolmanager = PoolManager(
+                                num_pools=connections,
+                                maxsize=maxsize,
+                                block=block,
+                                source_address=(self.source_ip, 0)
+                            )
+                    adapter = SourceIPAdapter(wifi_ip)
+                    session.mount('http://', adapter)
+                    session.mount('https://', adapter)
+                    tlog(f"已強制將 HTTP 連線綁定至網卡 IP: {wifi_ip}")
+                except Exception as e:
+                    tlog(f"⚠️ 綁定網卡 IP 發生異常: {e}")
+
+            # 發送 Keep Alive，用 try-except 包裹避免單次失敗直接崩潰
+            for _ in range(3):
+                try: 
+                    session.get(f"http://{gopro_ip}/gopro/camera/keep_alive", timeout=1.5)
+                except Exception: 
+                    pass
+                time.sleep(0.3)
+                
             res = session.get(f"http://{gopro_ip}:8080/gopro/media/list", timeout=5)
             if res.status_code == 200:
                 media_data = res.json()
@@ -1444,8 +1415,8 @@ class GoProXsensApp(QWidget):
             tlog(f"HTTP 下載出錯: {e}")
         return False
 
-    def _usb_download_logic(self):
-        match_token = "HERO|GoPro"
+    def _usb_download_logic(self, target_name=None):
+        match_token = target_name if (target_name and target_name != "全部相機") else "HERO|GoPro"
         ps_template = r"""
         try {
             $shell = New-Object -ComObject Shell.Application
@@ -1584,6 +1555,8 @@ class GoProXsensApp(QWidget):
     async def force_reset_gopro(self):
         self.log("正在執行 GoPro 硬重置連線...")
         self.btn_gopro_reset.setEnabled(False)
+        self.btn_gopro_sleep.setEnabled(False)
+        self.btn_gopro_poweroff.setEnabled(False)
         try:
             for gopro in self.gopro_clients:
                 try: await gopro['client'].disconnect()
@@ -1595,6 +1568,84 @@ class GoProXsensApp(QWidget):
         except Exception as e:
             self.log(f"重置失敗: {e}")
         self.btn_gopro_reset.setEnabled(True)
+
+    @asyncSlot()
+    async def sleep_all_gopro(self):
+        connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        if not connected_clients:
+            self.log("❌ 沒有已連線的 GoPro 進行休眠")
+            return
+        
+        self.log("正在發送 [休眠] 指令給所有連線的 GoPro...")
+        self.btn_gopro_sleep.setEnabled(False)
+        self.btn_gopro_poweroff.setEnabled(False)
+        
+        async def sleep_single(gopro):
+            client = gopro['client']
+            name = gopro['name']
+            try:
+                # 0x01, 0x05 is Sleep (keep BLE active)
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, bytearray([0x01, 0x05]), response=True)
+                self.log(f"✅ 已送出休眠指令給 {name}")
+                await asyncio.sleep(0.5)
+                await client.disconnect()
+                self.log(f"🔌 {name} 藍牙已中斷且進入休眠")
+            except Exception as e:
+                self.log(f"❌ {name} 休眠失敗: {e}")
+                
+        await asyncio.gather(*(sleep_single(c) for c in connected_clients), return_exceptions=True)
+        
+        # 清除連線狀態，因為相機已經休眠並中斷連線
+        self.gopro_clients.clear()
+        self.combo_ap_target.clear()
+        self.combo_download_target.clear()
+        self.combo_download_target.addItem("全部相機")
+        self.btn_gopro_connect.setEnabled(True)
+        self.btn_fetch_ap.setEnabled(False)
+        self.btn_preview_gopro.setEnabled(False)
+        self.btn_apply_settings.setEnabled(False)
+        self.btn_download_wifi.setEnabled(False)
+        self.btn_download_usb.setEnabled(False)
+        self.check_ready_state()
+
+    @asyncSlot()
+    async def poweroff_all_gopro(self):
+        connected_clients = [c for c in self.gopro_clients if c['client'].is_connected]
+        if not connected_clients:
+            self.log("❌ 沒有已連線的 GoPro 進行關機")
+            return
+        
+        self.log("正在發送 [完全關機] 指令給所有連線的 GoPro...")
+        self.btn_gopro_sleep.setEnabled(False)
+        self.btn_gopro_poweroff.setEnabled(False)
+        
+        async def poweroff_single(gopro):
+            client = gopro['client']
+            name = gopro['name']
+            try:
+                # 0x01, 0x04 is Power Down (shut down BLE too)
+                await client.write_gatt_char(GOPRO_COMMAND_UUID, bytearray([0x01, 0x04]), response=True)
+                self.log(f"✅ 已送出關機指令給 {name}")
+                await asyncio.sleep(0.5)
+                await client.disconnect()
+                self.log(f"🔌 {name} 藍牙已中斷且完全關機")
+            except Exception as e:
+                self.log(f"❌ {name} 關機失敗: {e}")
+                
+        await asyncio.gather(*(poweroff_single(c) for c in connected_clients), return_exceptions=True)
+        
+        # 清除連線狀態，因為相機已經關機並中斷連線
+        self.gopro_clients.clear()
+        self.combo_ap_target.clear()
+        self.combo_download_target.clear()
+        self.combo_download_target.addItem("全部相機")
+        self.btn_gopro_connect.setEnabled(True)
+        self.btn_fetch_ap.setEnabled(False)
+        self.btn_preview_gopro.setEnabled(False)
+        self.btn_apply_settings.setEnabled(False)
+        self.btn_download_wifi.setEnabled(False)
+        self.btn_download_usb.setEnabled(False)
+        self.check_ready_state()
 
     def closeEvent(self, event):
         new_config = {

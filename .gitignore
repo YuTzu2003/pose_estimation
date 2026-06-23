@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# GoPro & Xsens Data Outputs (Large Files)
+video_output/
+xsens_output/
+*.zip
+*.MP4
+*.mp4
+*.csv
