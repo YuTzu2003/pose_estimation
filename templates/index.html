@@ -1,0 +1,448 @@
+{% extends "base.html" %}
+
+{% block title %}AI步頻與動作數據分析{% endblock %}
+
+{% block content %}
+  <!-- ===== HERO ===== -->
+  <header class="hero">
+    <div class="container-xl">
+      <div class="row align-items-center g-5">
+        <div class="col-lg-6">
+          <h1>量化每一步，<br />解讀運動員的<em>節奏</em></h1>
+          <p class="lead">針對短距離與中距離跑者設計的步頻分析系統，提供關節角度、點位追蹤、步幅與速度分析。</p>
+
+          <div class="d-flex gap-2 mt-4">
+            <a href="#upload" class="btn btn-dark">上傳影片開始分析</a>
+            <a href="{{ url_for('records') }}" class="btn btn-outline-dark">查看選手紀錄</a>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="row g-3">
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="#upload">
+                <span class="arrow">→</span>
+                <div class="tile-num">[01]</div>
+                <h4 class="fs-5">上傳分析</h4>
+                <p class="small text-muted">上傳影片並勾選關節角度、步幅等分析項目。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="#edit">
+                <span class="arrow">→</span>
+                <div class="tile-num">[02]</div>
+                <h4 class="fs-5">CSV 補幀</h4>
+                <p class="small text-muted">針對偵測誤差進行手動修正並重新產生影片。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="{{ url_for('records') }}">
+                <span class="arrow">→</span>
+                <div class="tile-num">[03]</div>
+                <h4 class="fs-5">選手紀錄</h4>
+                <p class="small text-muted">依姓名查詢歷次分析，瀏覽 CSV 與指標摘要。</p>
+              </a>
+            </div>
+            <div class="col-6">
+              <a class="tile d-block text-decoration-none text-reset" href="{{ url_for('compare') }}">
+                <span class="arrow">→</span>
+                <div class="tile-num">[04]</div>
+                <h4 class="fs-5">交叉比較</h4>
+                <p class="small text-muted">選擇兩次紀錄，以時序曲線視覺化呈現差異。</p>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container-xl">
+    <!-- ===== UPLOAD ===== -->
+    <section class="section" id="upload">
+      <div class="section-head">
+        <span class="num-tag">01 / 03</span>
+        <h3>上傳影片並選取分析項目</h3>
+        <span class="right">支援 MP4 / MOV，建議 1080p、≥ 60fps。</span>
+      </div>
+
+      <form id="uploadForm" class="row g-4">
+        <div class="col-lg-7">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small text-muted mono">VIDEO FILE</label>
+              <div class="file-drop p-3 border rounded bg-light text-center cursor-pointer hover-shadow" id="fileDrop" onclick="document.getElementById('fileInput').click()" style="cursor: pointer;">
+                <input type="file" id="fileInput" name="video" accept="video/*" multiple hidden />
+                <i class="bi bi-camera-reels fs-4 text-muted mb-1 d-block"></i>
+                <span class="small d-block fw-bold text-dark">上傳影片分析</span>
+                <span class="x-small text-muted mono mt-1 d-block text-truncate px-2" id="fileName">未選取檔案</span>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mono">IMU DATA (CSV/XLSX)</label>
+              <div class="file-drop p-3 border rounded bg-light text-center cursor-pointer hover-shadow" id="imuDrop" onclick="document.getElementById('imuInput').click()" style="cursor: pointer;">
+                <input type="file" id="imuInput" name="imu_file" accept=".csv, .xls, .xlsx" hidden />
+                <i class="bi bi-activity fs-4 text-muted mb-1 d-block"></i>
+                <span class="small d-block fw-bold text-dark">上傳感測器數據</span>
+                <span class="x-small text-muted mono mt-1 d-block text-truncate px-2" id="imuFileName">未選取檔案</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-sm-6">
+              <label class="form-label">選手姓名 / ATHLETE</label>
+              <select class="form-select" id="athlete" name="athlete" required>
+                <option value="" disabled selected>請選擇選手...</option>
+                {% for player in players %}
+                  <option value="{{ player[0] }}">{{ player[1] }} ({{ player[0] }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">場次標註 / SESSION</label>
+              <input type="text" class="form-control" id="session" name="session" placeholder="例如：2026 春季測驗 #2" required />
+            </div>
+            <div class="col-12">
+              <label class="form-label">比例尺預設 / CALIBRATION PRESETS</label>
+              <select class="form-select form-select-sm mb-2" id="scalePreset">
+                <option value="custom" selected>自定義輸入 / Manual Input</option>
+                <option value="preset1">跑道標準配置 (距離 5.85m / 高度 1.02m)</option>
+              </select>
+              <div id="presetInfo" class="x-small text-muted mono p-2 border rounded bg-light mb-2 d-none">
+                <!-- Filled by JS -->
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small">比例尺參考距離 (m) / REF DIST</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.01" class="form-control" id="scale_reference" name="scale_reference" placeholder="例如：1.0" required />
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small">對應圖片像素 / IMAGE PIXELS</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control" id="scale_pixels" name="scale_pixels" placeholder="例如：100" required />
+                <button class="btn btn-dark px-3" type="button" id="autoMeasureBtn" style="display: none;">測量</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-5">
+          <label class="form-label d-flex align-items-center">
+            分析項目 / MODULES
+            <button type="button" class="btn btn-link p-0 ms-2 text-muted" 
+                    data-bs-toggle="popover" 
+                    data-bs-placement="top"
+                    data-bs-trigger="focus" 
+                    title="分析操作步驟" 
+                    data-bs-html="true"
+                    data-bs-content="<div class='small'><div class='mb-1'>1. 上傳並點擊偵測</div><div class='mb-1'>2. 查看偵測區間</div><div class='mb-1'>3. 勾選分析模組</div><div>4. 點擊確認執行</div></div>">
+              <i class="bi bi-question-circle" style="font-size: 0.9rem;"></i>
+            </button>
+          </label>
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="check-card is-checked" style="cursor: default; opacity: 0.8;">
+                <input type="checkbox" class="form-check-input" name="m" value="angle" checked onclick="return false;" />
+                <div class="ck-num">M-01</div>
+                <div class="ck-title">關節角度 Joint Angle <span class="badge bg-dark ms-1" style="font-size: 0.6rem; font-weight: normal;">必選</span></div>
+                <div class="ck-desc">計算身體關節在每幀的角度。</div>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="check-card">
+                <input type="checkbox" class="form-check-input" name="m" value="track" />
+                <div class="ck-num">M-02</div>
+                <div class="ck-title">點位追蹤 Keypoint Track</div>
+                <div class="ck-desc">追蹤髖、膝關節的運動軌跡。</div>
+              </label>
+            </div>
+            <div class="col-12">
+              <label class="check-card">
+                <input type="checkbox" class="form-check-input" name="m" value="gait" />
+                <div class="ck-num">M-03</div>
+                <div class="ck-title">步幅與速度 Stride &amp; Speed</div>
+                <div class="ck-desc">偵測腳跟觸地週期，計算步幅、步頻與瞬時速度。</div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Detection Results Section -->
+          <div id="detectionResults" class="mt-4 d-none">
+            <div class="alert alert-light border d-flex flex-column gap-2" style="background: #fdfdfd;">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-success dot-pulse"></span>
+                <span class="small fw-bold">偵測完成出現人的區間 / DETECTION COMPLETE</span>
+              </div>
+              <div id="intervalList" class="mono small text-muted">
+                <!-- Intervals will be injected here -->
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary w-100 mt-2" id="confirmAnalyzeBtn">確認並執行分析 / CONFIRM & ANALYZE</button>
+          </div>
+
+          <div class="d-grid gap-2 mt-4" id="uploadBtnContainer">
+          <button type="submit" class="btn btn-dark" id="startBtn">上傳並偵測人物裁切 / UPLOAD & DETECT</button>
+          <button type="button" class="btn btn-outline-dark" onclick="window.location.reload()">清除</button>
+          </div>
+
+          <!-- Progress Bar Section -->
+          <div id="progressContainer" class="mt-4 d-none">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="small mono text-muted" id="progressStatus">正在準備分析...</span>
+              <span class="small mono text-muted" id="progressPercent">0%</span>
+            </div>
+            <div class="progress" style="height: 6px; background-color: #eee;">
+              <div id="progressBar" class="progress-bar bg-dark" role="progressbar" style="width: 0%; transition: width 0.3s ease;"></div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- ===== RESULT (mocked preview) ===== -->
+    <section class="section" id="result">
+      <div class="section-head">
+        <span class="num-tag">02 / 03</span>
+        <h3>分析結果預覽</h3>
+      </div>
+
+      <div class="row">
+        <div class="col-12">
+          <!-- Record Selector for Multi-Video Sessions -->
+          <div id="recordSelector" class="d-flex gap-2 mb-3 overflow-auto pb-2 d-none">
+            <!-- Filled by JS -->
+          </div>
+
+          <div id="videoContainer">
+            <div class="video-frame d-flex align-items-center justify-content-center text-white-50 mono small" style="min-height: 400px; background: #1a1a1a;">
+              ANALYZED VIDEO PREVIEW
+            </div>
+          </div>
+          
+          <div id="previewSpeedContainer" class="mt-3 d-flex align-items-center gap-3 d-none">
+            <div class="d-flex align-items-center gap-2">
+              <label class="small text-muted mono text-nowrap">PLAYBACK SPEED:</label>
+              <select id="previewSpeed" class="form-select form-select-sm" style="width: 140px; font-size: 0.85rem;">
+                <option value="1.0" selected>正常 (1x)</option>
+                <option value="0.5">2倍慢 (0.5x)</option>
+                <option value="0.33">3倍慢 (0.33x)</option>
+              </select>
+            </div>
+            
+            <!-- Floating IMU Button - Moved here -->
+            <button id="imuModalBtn" class="btn btn-sm btn-outline-dark ms-auto">IMU 數據分析</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMU Analysis Modal -->
+    <div class="modal fade" id="imuModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+          <div class="modal-header bg-dark text-white border-0 py-3">
+            <h5 class="modal-title mono fs-6">IMU 數據圖 / IMU VISUALIZATION</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body p-4 bg-light">
+            <div class="d-flex justify-content-center flex-wrap gap-2 mb-4">
+              <div class="btn-group btn-group-sm" role="group">
+                <input type="radio" class="btn-check" name="imuType" id="typeAccRes" value="acc_res" checked>
+                <label class="btn btn-outline-dark" for="typeAccRes">合加速度 (Acc Res)</label>
+
+                <input type="radio" class="btn-check" name="imuType" id="typeAccIntegral" value="acc_integral">
+                <label class="btn btn-outline-dark" for="typeAccIntegral">速度 (Speed)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeAccXYZ" value="acc_xyz">
+                <label class="btn btn-outline-dark" for="typeAccXYZ">加速度 (Acc XYZ)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeAccX" value="acc_x">
+                <label class="btn btn-outline-dark" for="typeAccX">Acc X</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeAccY" value="acc_y">
+                <label class="btn btn-outline-dark" for="typeAccY">Acc Y</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeAccZ" value="acc_z">
+                <label class="btn btn-outline-dark" for="typeAccZ">Acc Z</label>
+              </div>
+
+              <div class="btn-group btn-group-sm" role="group">
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrXYZ" value="gyr_xyz">
+                <label class="btn btn-outline-dark" for="typeGyrXYZ">角速度 (Gyr XYZ)</label>
+                
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrX" value="gyr_x">
+                <label class="btn btn-outline-dark" for="typeGyrX">Gyr X</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrY" value="gyr_y">
+                <label class="btn btn-outline-dark" for="typeGyrY">Gyr Y</label>
+                <input type="radio" class="btn-check" name="imuType" id="typeGyrZ" value="gyr_z">
+                <label class="btn btn-outline-dark" for="typeGyrZ">Gyr Z</label>
+              </div>
+            </div>
+            
+            <div id="imuPlotLoading" class="text-center py-5 d-none">
+                <div class="spinner-border spinner-border-sm text-dark" role="status"></div>
+                <div class="small text-muted mt-2 mono">LOADING CHART...</div>
+            </div>
+            
+            <div id="imuPlotContainer" class="bg-white p-3 rounded border shadow-sm">
+              <img src="" id="imuModalPlotImg" class="img-fluid w-100" alt="IMU Plot">
+            </div>
+            
+            <div id="imuNoData" class="text-center py-5 d-none">
+                <div class="small text-muted mono">NO IMU DATA AVAILABLE FOR THIS RECORD</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== EDIT / CSV CORRECTION ===== -->
+    <section class="section" id="edit">
+      <div class="section-head">
+        <span class="num-tag">03 / 03</span>
+        <h3>CSV 補幀 — 步幅與速度</h3>
+        <span class="right">直接點選表格儲存格進行修改，完成後重新產生影片。</span>
+      </div>
+
+      <div class="alert d-flex align-items-center gap-3 mb-3" role="alert" style="border:1px solid var(--line); background:#fafafa;">
+        <span class="tag tag-dark"><span class="dot"></span> EDIT MODE</span>
+        <span class="small text-muted">針對模型誤判的步幅，可直接編輯下表中的「步幅 (m)」與「速度 (m/s)」。</span>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle table-sm">
+          <thead class="table-light">
+            <tr>
+              <th rowspan="2" class="text-center" style="width:50px">#</th>
+              <th colspan="4" class="text-center">右腳數據 / RIGHT FOOT</th>
+              <th colspan="4" class="text-center">左腳數據 / LEFT FOOT</th>
+            </tr>
+            <tr>
+              <th class="text-center">Frame</th>
+              <th class="text-center">X (px)</th>
+              <th class="text-center">Y (px)</th>
+              <th class="text-center" style="width:50px">刪除</th>
+              <th class="text-center">Frame</th>
+              <th class="text-center">X (px)</th>
+              <th class="text-center">Y (px)</th>
+              <th class="text-center" style="width:50px">刪除</th>
+            </tr>
+          </thead>
+          <tbody id="csvBody" class="mono small"><!-- filled by JS --></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-outline-dark" onclick="window.addNewPeak()">新增步點</button>
+        <button class="btn btn-outline-primary" id="openPickerBtn">開啟選點補幀</button>
+        <button class="btn btn-outline-dark" id="regenBtn">重新產生影片</button>
+        <button class="btn btn-dark" id="saveProjectBtn">保存專案</button>
+        <a class="btn btn-outline-dark ms-auto" href="{{ url_for('records') }}">前往選手紀錄</a>
+      </div>
+    </section>
+
+
+
+
+    <!-- ===== REMOVED OLD EDIT SECTION ===== -->
+
+  </main>
+
+  <!-- Measurement Modal -->
+  <div class="modal fade" id="measureModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-dark text-white border-0 py-3">
+          <h5 class="modal-title mono fs-6">自動像素測量</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-0 bg-dark position-relative" style="min-height: 500px;">
+          <!-- Canvas for drawing -->
+          <div class="d-flex align-items-center justify-content-center overflow-hidden" style="height: 600px; background: #000;">
+            <canvas id="measureCanvas" style="cursor: crosshair; max-width: 100%; max-height: 100%;"></canvas>
+          </div>
+          
+          <!-- Controls Overlay -->
+          <div class="position-absolute bottom-0 start-0 end-0 p-3 bg-dark bg-opacity-75 text-white">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <input type="range" class="form-range flex-grow-1" id="measureSlider" min="0" max="100" value="0">
+              <span class="mono small text-nowrap" id="measureFrameText">Frame: 0 / 0</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-light" id="measurePrevFrame"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light" id="measureNextFrame"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light ms-2" id="measureClearBtn">清除點位 / CLEAR</button>
+              </div>
+              <div class="d-flex align-items-center gap-3">
+                <div class="mono small">
+                  像素值 / PIXELS: <span id="measureResultText" class="fw-bold text-warning">0.00</span>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm px-4" id="measureConfirmBtn">確認</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Loading Spinner -->
+          <div id="measureLoading" class="position-absolute top-0 start-0 end-0 bottom-0 d-flex flex-column align-items-center justify-content-center bg-dark bg-opacity-75 d-none">
+            <div class="spinner-border text-light mb-2" role="status"></div>
+            <div class="text-light mono small">LOADING VIDEO FRAME...</div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light py-2 small mono text-muted justify-content-start">
+          <i class="bi bi-info-circle me-1"></i> 操作說明：在畫面上點擊兩點來測量距離。右鍵點擊可取消上一個點。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Point Picker Modal -->
+  <div class="modal fade" id="pickerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg">
+        <div class="modal-header bg-primary text-white border-0 py-3">
+          <h5 class="modal-title mono fs-6">選點補幀工具</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-0 bg-dark position-relative" style="min-height: 500px;">
+          <div class="d-flex align-items-center justify-content-center overflow-hidden" style="height: 600px; background: #000;">
+            <canvas id="pickerCanvas" style="cursor: crosshair; max-width: 100%; max-height: 100%;"></canvas>
+          </div>
+          
+          <div class="position-absolute bottom-0 start-0 end-0 p-3 bg-dark bg-opacity-75 text-white">
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <input type="range" class="form-range flex-grow-1" id="pickerSlider" min="0" max="100" value="0">
+              <span class="mono small text-nowrap" id="pickerFrameText">Frame: 0 / 0</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-light" id="pickerPrevFrame"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light" id="pickerNextFrame"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-light ms-2" id="pickerClearBtn">清除點位 / CLEAR</button>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="mono small me-2">
+                  座標 / COORD: <span id="pickerResultText" class="fw-bold text-warning">X: 0, Y: 0</span>
+                </div>
+                <button type="button" class="btn btn-danger btn-sm px-3" id="recordRightBtn">記錄為右腳 (R)</button>
+                <button type="button" class="btn btn-primary btn-sm px-3" id="recordLeftBtn">記錄為左腳 (L)</button>
+              </div>
+            </div>
+          </div>
+          
+          <div id="pickerLoading" class="position-absolute top-0 start-0 end-0 bottom-0 d-flex flex-column align-items-center justify-content-center bg-dark bg-opacity-75 d-none">
+            <div class="spinner-border text-light mb-2" role="status"></div>
+            <div class="text-light mono small">LOADING VIDEO FRAME...</div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light py-2 small mono text-muted justify-content-start">
+          <i class="bi bi-info-circle me-1"></i> 操作說明：在畫面上點擊一點，然後點擊「記錄為右腳」或「記錄為左腳」填入表格。
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+{% endblock %}
